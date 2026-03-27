@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #ffffff; }
+        #viewer { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+<div id="viewer"></div>
+
+<script>
+    var injectedBase64 = "FLUTTER_BASE64";
+    var injectedCfi = "FLUTTER_CFI";
+
+    var pageStartTime = Date.now();
+    var readingSpeeds = [];
+    var defaultMsPerPage = 30000;
+
+    function sendToFlutter(data) {
+        try {
+            var str = JSON.stringify(data);
+            if (window.FlutterChannel && window.FlutterChannel.postMessage) {
+                window.FlutterChannel.postMessage(str);
+            } else if (window.parent && window.parent.postMessage) {
+                window.parent.postMessage(str, "*");
+            }
+        } catch(e) {}
+    }
+
+    window.onload = function() {
+        if (injectedBase64 !== "FLUTTER_BASE64" && injectedBase64 !== "") {
+            var binaryString = window.atob(injectedBase64);
+            var bytes = new Uint8Array(binaryString.length);
+            for (var i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            var book = ePub(bytes.buffer);
+            var rendition = book.renderTo("viewer", {
+                width: "100%", height: "100%", spread: "none", manager: "continuous", flow: "paginated"
+            });
+
+            var startCfi = (injectedCfi !== "FLUTTER_CFI" && injectedCfi !== "") ? injectedCfi : undefined;
+
+            rendition.display(startCfi).then(function() {
+                sendToFlutter({ event: "ready" });
+                pageStartTime = Date.now();
+            });
+
+            // Variabile per ricordare l'ultimo tocco ed evitare il Ghost Click
+            var lastTapTime = 0;
+
+            function handleTap(clientX) {
+                var now = Date.now();
+                // Se sono passati meno di 300 millisecondi dall'ultimo tocco, ignoralo!
+                if (now - lastTapTime < 300) return;
+                lastTapTime = now;
+
+                var width = window.innerWidth;
+                if (clientX < width * 0.3) rendition.prev();
+                else if (clientX > width * 0.7) rendition.next();
+            }
+
+            // Ascoltatori aggiornati
+            rendition.on("click", function(e) {
+                handleTap(e.clientX);
+            });
+
+            rendition.on("touchstart", function(e) {
+                if (e.changedTouches.length > 0) {
+                    handleTap(e.changedTouches[0].clientX);
+                }
+            });
+
+            rendition.on("relocated", function(location) {
+                var now = Date.now();
+                var timeSpent = now - pageStartTime;
+                pageStartTime = now;
+
+                if (timeSpent > 3000 && timeSpent < 180000) {
+                    readingSpeeds.push(timeSpent);
+                    if (readingSpeeds.length > 5) readingSpeeds.shift();
+                }
+
+                var avgSpeed = readingSpeeds.length > 0
+                    ? readingSpeeds.reduce((a, b) => a + b, 0) / readingSpeeds.length
+                    : defaultMsPerPage;
+
+                var pagesLeftInChapter = 0;
+                if (location.start.displayed) {
+                    pagesLeftInChapter = location.start.displayed.total - location.start.displayed.page;
+                }
+
+                var minutesLeft = Math.ceil((pagesLeftInChapter * avgSpeed) / 60000);
+
+                var totalProgress = 0.0;
+                if (book.locations.length() > 0) {
+                    totalProgress = book.locations.percentageFromCfi(location.start.cfi);
+                } else {
+                    totalProgress = location.start.index / (book.spine.length || 1);
+                }
+
+                sendToFlutter({
+                    event: "relocated",
+                    cfi: location.start.cfi,
+                    bookProgress: totalProgress,
+                    minutesLeft: minutesLeft
+                });
+            });
+
+            // BACKGROUND TASK CORRETTO: Mappa la "Spine" (i file strutturali reali)
+            book.ready.then(function() {
+                return book.locations.generate(1600);
+            }).then(function() {
+                var marks = [];
+                try {
+                    // Scorre la spina dorsale del libro invece dell'indice testuale
+                    if (book.spine && book.spine.items) {
+                        for (var i = 0; i < book.spine.items.length; i++) {
+                            var item = book.spine.items[i];
+                            if (item.cfiBase) {
+                                // Ricava la percentuale esatta direttamente dal CFI base
+                                var pct = book.locations.percentageFromCfi(item.cfiBase);
+                                if (pct > 0.01 && pct < 0.99) {
+                                    marks.push(pct);
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    sendToFlutter({ event: "error", message: "Errore calcolo Spine: " + err.toString() });
+                }
+
+                // Manda le tacche e un aggiornamento forzato
+                sendToFlutter({ event: "marks_ready", marks: marks });
+                var current = rendition.currentLocation();
+                if (current) rendition.emit("relocated", current);
+
+            }).catch(function(err) {
+                // Se book.locations.generate fallisce o ci sono altri problemi critici
+                sendToFlutter({ event: "error", message: "Errore generico in background: " + err.toString() });
+            });
+        }
+    };
+</script>
+</body>
+</html>

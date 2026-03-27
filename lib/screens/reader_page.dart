@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:epub_view/epub_view.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io' as io;
+import 'package:universal_html/html.dart' as html;
 
 class ReaderPage extends StatefulWidget {
   final PlatformFile epubFile;
@@ -16,134 +19,126 @@ class ReaderPage extends StatefulWidget {
 }
 
 class _ReaderPageState extends State<ReaderPage> {
-  late EpubController _epubController;
-  bool _isControllerInitialized = false;
+  late WebViewController _controller;
+  bool _isWebViewReady = false;
+  bool _isBookReady = false;
+
   String _currentTime = '';
   Timer? _timer;
 
-  bool _isReady = false;
-
-  // Metadati calcolati dinamicamente
   double _readingProgress = 0.0;
-  int _currentChapter = 1;
-  int _totalChapters = 1;
+  String _currentCfi = '';
   String _estimatedTimeLeft = "Calcolo...";
-
   List<double> _chapterMarks = [];
-  List<int> _chapterWordCounts = [];
-  int _totalBookWords = 0;
-
-  // Velocità media di lettura (Parole al minuto)
-  final int _wordsPerMinute = 250;
 
   @override
   void initState() {
     super.initState();
     _startClock();
-    _initReader();
+    _initWebView();
   }
 
   void _startClock() {
     _updateTime();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      _updateTime();
-    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) => _updateTime());
   }
 
   void _updateTime() {
-    setState(() {
-      _currentTime = DateFormat('HH:mm').format(DateTime.now());
-    });
+    setState(() => _currentTime = DateFormat('HH:mm').format(DateTime.now()));
   }
 
   Future<Uint8List> _getEpubBytes() async {
-    if (kIsWeb) {
-      return widget.epubFile.bytes!;
-    } else {
-      return await io.File(widget.epubFile.path!).readAsBytes();
-    }
+    if (kIsWeb) return widget.epubFile.bytes!;
+    return await io.File(widget.epubFile.path!).readAsBytes();
   }
 
-  Future<void> _initReader() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedPosition = prefs.getString('bookmark_${widget.epubFile.name}');
+  Future<void> _initWebView() async {
+    _controller = WebViewController();
 
+    // 1. Configurazioni per Mobile (Android/iOS)
+    if (!kIsWeb) {
+      _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      _controller.setBackgroundColor(Colors.white);
+      _controller.addJavaScriptChannel(
+        'FlutterChannel',
+        onMessageReceived: (JavaScriptMessage message) => _handleJavascriptMessage(message.message),
+      );
+    } else {
+      // 2. Ascoltatore Nativo Universale per il Web
+      html.window.onMessage.listen((event) {
+        if (event.data is String) {
+          final msg = event.data as String;
+          // Ascoltiamo 'cfi', 'ready' ed 'error'
+          if (msg.contains('cfi') || msg.contains('ready') || msg.contains('error')) {
+            _handleJavascriptMessage(msg);
+          }
+        }
+      });
+    }
+
+    // 3. Prepariamo il file e la posizione
     final Uint8List epubBytes = await _getEpubBytes();
+    final String base64Epub = base64Encode(epubBytes);
 
-    _epubController = EpubController(
-      document: EpubDocument.openData(epubBytes),
-      epubCfi: savedPosition,
-    );
+    final prefs = await SharedPreferences.getInstance();
+    final savedCfi = prefs.getString('bookmark_${widget.epubFile.name}') ?? '';
 
-    setState(() {
-      _isControllerInitialized = true;
-    });
+    // 4. Iniettiamo nel file HTML
+    String htmlContent = await rootBundle.loadString('assets/index.html');
+    htmlContent = htmlContent.replaceFirst('"FLUTTER_BASE64"', '"$base64Epub"');
+    htmlContent = htmlContent.replaceFirst('"FLUTTER_CFI"', '"$savedCfi"');
+
+    await _controller.loadHtmlString(htmlContent);
+
+    setState(() => _isWebViewReady = true);
+  }
+
+// --- FUNZIONE CHE ASCOLTA IL JS ---
+  void _handleJavascriptMessage(String message) {
+    try {
+      final data = jsonDecode(message);
+
+      print(data);
+
+      if (data['event'] == 'ready') {
+        setState(() => _isBookReady = true);
+        return;
+      }
+
+      // Il JS ha finito di mappare il libro e ci invia la posizione dei capitoli
+      if (data['event'] == 'marks_ready') {
+        setState(() {
+          if (data['marks'] != null) {
+            _chapterMarks = List<double>.from(data['marks'].map((x) => (x as num).toDouble()));
+          }
+        });
+        return;
+      }
+
+      if (data['event'] == 'relocated') {
+        setState(() {
+          _currentCfi = data['cfi'] ?? '';
+
+          if (data['bookProgress'] != null) {
+            _readingProgress = (data['bookProgress'] as num).toDouble();
+          }
+
+          if (data['minutesLeft'] != null) {
+            int mins = (data['minutesLeft'] as num).toInt();
+            _estimatedTimeLeft = mins < 1 ? "< 1 min" : "~$mins min";
+          }
+        });
+        _saveBookmark();
+      }
+    } catch (e) {
+      if (kDebugMode) print("Errore JS: $e");
+    }
   }
 
   Future<void> _saveBookmark() async {
-    if (_epubController.generateEpubCfi() != null) {
+    if (_currentCfi.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          'bookmark_${widget.epubFile.name}',
-          _epubController.generateEpubCfi()!
-      );
-    }
-  }
-
-  // ALGORITMO: Analizza l'EPUB per estrarre parole e posizioni
-  Future<void> _analyzeBookMetadata(EpubBook document) async {
-    int totalWords = 0;
-    List<int> wordCounts = [];
-    List<double> marks = [];
-
-    // Se l'EPUB ha capitoli formattati correttamente
-    if (document.Chapters != null && document.Chapters!.isNotEmpty) {
-      for (var chapter in document.Chapters!) {
-        // Estraiamo il testo HTML e lo ripuliamo dai tag per contare le parole
-        String html = chapter.HtmlContent ?? '';
-        String cleanText = html.replaceAll(RegExp(r'<[^>]*>'), ' ');
-        int words = cleanText.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).length;
-
-        wordCounts.add(words);
-        marks.add(totalWords.toDouble()); // Registriamo il punto di inizio del capitolo
-        totalWords += words;
-      }
-
-      // Trasformiamo i conteggi in percentuali per le tacche (es: 0.0, 0.15, 0.40)
-      if (totalWords > 0) {
-        marks = marks.map((m) => m / totalWords).toList();
-      }
-    }
-
-    setState(() {
-      _totalBookWords = totalWords;
-      _chapterWordCounts = wordCounts;
-      _chapterMarks = marks;
-      _totalChapters = document.Chapters?.length ?? 1;
-      _isReady = true;
-
-      _updateProgressAndEstimations(_currentChapter);
-    });
-  }
-
-  // ALGORITMO: Aggiorna la barra e il tempo stimato quando cambi capitolo
-  void _updateProgressAndEstimations(int chapterNumber) {
-    int index = chapterNumber - 1; // Gli array partono da 0
-
-    if (index >= 0 && index < _chapterWordCounts.length) {
-      // 1. Calcola il tempo stimato per QUESTO capitolo
-      int chapterWords = _chapterWordCounts[index];
-      int minutesLeft = (chapterWords / _wordsPerMinute).ceil();
-      _estimatedTimeLeft = minutesLeft < 1 ? "< 1 min" : "$minutesLeft min";
-
-      // 2. Aggiorna la percentuale reale del libro letto (fino all'inizio del capitolo)
-      if (_totalBookWords > 0 && index < _chapterMarks.length) {
-        _readingProgress = _chapterMarks[index];
-      }
-    } else {
-      // Fallback nel caso l'EPUB non abbia indici validi
-      _estimatedTimeLeft = "N/D";
-      _readingProgress = _totalChapters > 0 ? chapterNumber / _totalChapters : 0.0;
+      await prefs.setString('bookmark_${widget.epubFile.name}', _currentCfi);
     }
   }
 
@@ -154,7 +149,7 @@ class _ReaderPageState extends State<ReaderPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // --- TOP BAR: Orario e Tasto Indietro ---
+            // --- TOP BAR ---
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
               child: Stack(
@@ -170,65 +165,97 @@ class _ReaderPageState extends State<ReaderPage> {
                       },
                     ),
                   ),
-                  Text(
-                      _currentTime,
-                      style: const TextStyle(fontSize: 14, color: Colors.black54, fontWeight: FontWeight.bold)
-                  ),
+                  Text(_currentTime, style: const TextStyle(fontSize: 14, color: Colors.black54, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
 
-            // --- AREA DI LETTURA ---
+            // --- AREA WEBVIEW ---
             Expanded(
-              child: _isControllerInitialized
-                  ? EpubView(
-                controller: _epubController,
-                onDocumentLoaded: (document) {
-                  // Avvia l'analisi profonda del libro in background
-                  _analyzeBookMetadata(document);
-                },
-                onChapterChanged: (chapter) {
-                  if (chapter != null) {
-                    setState(() {
-                      _currentChapter = chapter.chapterNumber;
-                      if (_isReady) {
-                        _updateProgressAndEstimations(_currentChapter);
-                      }
-                    });
-                    _saveBookmark();
-                  }
-                },
-              )
-                  : const Center(
-                child: CircularProgressIndicator(color: Colors.black),
+              child: Stack(
+                children: [
+                  if (_isWebViewReady) WebViewWidget(controller: _controller),
+
+                  if (!_isBookReady)
+                    Container(
+                      color: Colors.white,
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: Colors.black),
+                            SizedBox(height: 16),
+                            Text("Impaginazione del libro...", style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
 
-            // --- BOTTOM BAR: Progressi e Info Testuali ---
+            // --- BOTTOM BAR ---
             Container(
               color: Colors.white,
               padding: const EdgeInsets.only(bottom: 16.0, top: 8.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildProgressBar(),
-                  const SizedBox(height: 8),
+                  // Progress Bar con le Tacche dei capitoli
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SizedBox(
+                            height: 12,
+                            width: constraints.maxWidth,
+                            child: Stack(
+                              alignment: Alignment.centerLeft,
+                              children: [
+                                SizedBox(
+                                  width: constraints.maxWidth,
+                                  child: LinearProgressIndicator(
+                                    value: _readingProgress,
+                                    backgroundColor: Colors.grey[200],
+                                    color: Colors.black87,
+                                    minHeight: 4,
+                                  ),
+                                ),
+                                // Disegna i segmenti (le tacche) dei capitoli
+                                ..._chapterMarks.map((mark) {
+                                  return Positioned(
+                                    left: constraints.maxWidth * mark,
+                                    child: Container(
+                                      width: 1.5,
+                                      height: 12,
+                                      color: Colors.red, // Colore della tacca
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            ),
+                          );
+                        }
+                    ),
+                  ),
+
+                  // Testi Informativi
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Percentuale matematica esatta
-                        Text('${(_readingProgress * 100).toStringAsFixed(1)}%',
-                            style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.bold)),
+                        // Tempo Rimanente alla fine del capitolo (Dinamico!)
+                        Text(
+                          'Fine cap: $_estimatedTimeLeft',
+                          style: const TextStyle(fontSize: 13, color: Colors.black54),
+                        ),
 
-                        // Numero capitolo
-                        Text(_isReady ? 'Cap. $_currentChapter di $_totalChapters' : 'Analisi in corso...',
-                            style: const TextStyle(fontSize: 13, color: Colors.black87)),
-
-                        // Tempo stimato
-                        Text('Fine cap: $_estimatedTimeLeft',
-                            style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                        // Percentuale TOTALE del libro
+                        Text(
+                          '${(_readingProgress * 100).toStringAsFixed(1)}%',
+                          style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.bold),
+                        ),
                       ],
                     ),
                   ),
@@ -241,50 +268,10 @@ class _ReaderPageState extends State<ReaderPage> {
     );
   }
 
-  Widget _buildProgressBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SizedBox(
-              height: 12,
-              width: constraints.maxWidth,
-              child: Stack(
-                alignment: Alignment.centerLeft,
-                children: [
-                  SizedBox(
-                    width: constraints.maxWidth,
-                    child: LinearProgressIndicator(
-                      value: _readingProgress,
-                      backgroundColor: Colors.grey[200],
-                      color: Colors.black87,
-                      minHeight: 4,
-                    ),
-                  ),
-                  // Le tacche ora sono popolate dinamicamente dalla lunghezza dei capitoli!
-                  ..._chapterMarks.map((mark) {
-                    return Positioned(
-                      left: constraints.maxWidth * mark,
-                      child: Container(
-                        width: 2,
-                        height: 12,
-                        color: Colors.black54,
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
-            );
-          }
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _timer?.cancel();
     _saveBookmark();
-    _epubController.dispose();
     super.dispose();
   }
 }
