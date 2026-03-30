@@ -1,7 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  // SOSTITUISCI CON IL NOME ESATTO DEL TUO REPOSITORY SU GITHUB (con le barre!)
+  base: '/librain/',
+
+  plugins: [
+    react(),
+    VitePWA({
+      // ... (il resto della tua configurazione PWA)
+    })
+  ]
 })
