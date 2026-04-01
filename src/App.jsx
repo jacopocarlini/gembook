@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import Home from './Home';
-import Reader from './Reader';
+import Home from './views/Home';
+import Reader from './views/Reader';
 
 function App() {
   // Stato per memorizzare l'ID del libro attualmente in lettura.
