@@ -4,9 +4,6 @@ import {epubService} from '../services/EpubService';
 import {
     AppBar,
     Box,
-    Dialog,
-    DialogContent,
-    DialogTitle,
     Drawer,
     IconButton,
     List,
@@ -14,8 +11,6 @@ import {
     ListItemButton,
     ListItemText,
     Slider,
-    ToggleButton,
-    ToggleButtonGroup,
     Toolbar,
     Typography
 } from '@mui/material';
@@ -24,10 +19,9 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import {SettingsDrawer} from './Settings';
 
-const PURPLE = '#5e35b1';
-
-export default function Reader({bookId, onClose}) {
+export default function Reader({bookId, onClose, settings, setSettings, themeStyles}) {
     const viewerRef = useRef(null);
 
     // Stati UI e Info Libro
@@ -42,30 +36,21 @@ export default function Reader({bookId, onClose}) {
     const [chaptersMarks, setChaptersMarks] = useState([]);
     const [currentChapterIndex, setCurrentChapterIndex] = useState(-1);
 
-    // Menu e Impostazioni
+    // Menu
     const [isTocOpen, setIsTocOpen] = useState(false);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [settings, setSettings] = useState({
-        fontSize: 100, fontFamily: 'serif', theme: 'light', flow: 'paginated'
-    });
-
-    const themeColors = {
-        light: {bg: '#ffffff', text: '#000000', barBg: '#ffffff'},
-        dark: {bg: '#121212', text: '#e0e0e0', barBg: '#121212'},
-        sepia: {bg: '#f4ecd8', text: '#5b4636', barBg: '#f4ecd8'}
-    };
-    const currentTheme = themeColors[settings.theme];
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     // Aggiornamento Orologio
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date().toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
+            hour: '2-digit', minute: '2-digit'
         })), 10000);
         return () => clearInterval(timer);
     }, []);
 
-    // Inizializzazione del Libro tramite Service
+    // Inizializzazione del Libro
+// Dentro Reader.js, nell'useEffect di inizializzazione:
+
     useEffect(() => {
         let isMounted = true;
 
@@ -73,44 +58,66 @@ export default function Reader({bookId, onClose}) {
             const bookData = await db.books.get(bookId);
             if (!bookData || !isMounted) return;
 
-            setBookTitle(bookData.title);
-            if (bookData.toc) {
-                setToc(bookData.toc);
-                // RIMOSSA LA LOGICA DEI MARKS DA QUI
-            }
-
+            // Passiamo direttamente il riferimento al DOM
             await epubService.init({
                 bookData,
-                elementId: viewerRef.current,
+                elementId: viewerRef.current, // Passa il nodo DOM direttamente
                 settings: settings,
                 onReady: () => {
                     if (!isMounted) return;
                     setIsBookReady(true);
-
-                    // Aggiungi i marks richiamandoli dal service una volta pronto!
                     setChaptersMarks(epubService.getChapterMarks());
+
+                    // Evento tastiera dentro l'iframe
+                    epubService.rendition.on('keydown', (e) => {
+                        if (e.key === 'ArrowLeft') epubService.prev();
+                        if (e.key === 'ArrowRight') epubService.next();
+                    });
                 },
                 onRelocated: (data) => {
                     if (!isMounted) return;
                     setChapterStats({title: data.chapterTitle, timeLeft: data.timeLeft});
                     setCurrentChapterIndex(data.chapterIndex);
                     setBookProgress(data.percentage);
-                    db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage}).catch(console.error);
+                    db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
                 }
             });
         };
 
         loadBook();
+
         return () => {
             isMounted = false;
+            // La distruzione è gestita dal service
             epubService.destroy();
         };
-    }, [bookId]); // Assicurati di non avere `settings` come dipendenza per non reinizializzare tutto a ogni cambio
+    }, [bookId, settings]); // Riesegue quando cambia la modalità
+    // Applica settings dinamici (font, temi, etc)
 
-    const updateSetting = (key, value) => {
-        const newSettings = {...settings, [key]: value};
-        setSettings(newSettings);
-        epubService.applySettings(newSettings);
+
+    useEffect(() => {
+        if (isBookReady && epubService) {
+            epubService.applySettings(settings);
+        }
+    }, [settings, isBookReady]);
+
+    // Tastiera finestra principale
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+            if (event.key === 'ArrowLeft') epubService.prev();
+            if (event.key === 'ArrowRight') epubService.next();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    const handleMarginClick = (e) => {
+        if (window.getSelection().toString().length > 0) return;
+        const containerRect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - containerRect.left;
+        if (clickX < containerRect.width * 0.25) epubService.prev();
+        else if (clickX > containerRect.width * 0.75) epubService.next();
     };
 
     return (
@@ -118,16 +125,18 @@ export default function Reader({bookId, onClose}) {
             display: 'flex',
             flexDirection: 'column',
             height: '100dvh',
-            bgcolor: currentTheme.bg,
-            color: currentTheme.text,
-            overflow: 'hidden'
+            bgcolor: themeStyles.bg,
+            color: themeStyles.text,
+            overflow: 'hidden',
+            transition: 'background-color 0.3s ease'
         }}>
 
-            {/* --- BARRA IN ALTO (AppBar) --- */}
+            {/* HEADER */}
             <AppBar position="static" elevation={0} sx={{
-                bgcolor: currentTheme.barBg,
-                color: currentTheme.text,
-                borderBottom: '1px solid rgba(0,0,0,0.1)'
+                bgcolor: themeStyles.card,
+                color: themeStyles.text,
+                borderBottom: `1px solid ${themeStyles.border}`,
+                backgroundImage: 'none'
             }}>
                 <Toolbar>
                     <IconButton edge="start" color="inherit" onClick={onClose}><ArrowBackIcon/></IconButton>
@@ -136,7 +145,8 @@ export default function Reader({bookId, onClose}) {
 
                     <Box sx={{flexGrow: 1, textAlign: 'center', px: 2}}>
                         <Typography variant="body1" noWrap sx={{fontWeight: 600}}>{bookTitle}</Typography>
-                        <Typography variant="caption" noWrap sx={{display: 'block', opacity: 0.7}}>
+                        <Typography variant="caption" noWrap
+                                    sx={{display: 'block', opacity: 0.7, color: themeStyles.secondaryText}}>
                             {chapterStats.title || 'Caricamento...'}
                         </Typography>
                     </Box>
@@ -146,160 +156,156 @@ export default function Reader({bookId, onClose}) {
                         {time}
                     </Typography>
 
-                    <IconButton color="inherit" onClick={() => setIsSettingsOpen(true)}><SettingsIcon/></IconButton>
+                    <IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon/></IconButton>
                 </Toolbar>
             </AppBar>
 
-            <Box sx={{flexGrow: 1, position: 'relative'}}>
-                <Box ref={viewerRef} sx={{height: '100%', px: {xs: 1, sm: 4}}}/>
+
+            {/* AREA LETTURA */}
+            <Box
+                sx={{
+                    flexGrow: 1,
+                    position: 'relative',
+                    overflow: 'hidden', // <-- DEVE essere sempre hidden! Lo scroll lo fa epub.js internamente
+                }}
+                onClick={handleMarginClick}
+            >
+                <Box
+                    ref={viewerRef}
+                    sx={{
+                        height: '100%',
+                        width: '100%',
+                        px: {xs: 1, sm: 4},
+                        // Reset forzato per evitare bug di epub.js che aggiunge inline styles
+                        '& .epub-container': {
+                            height: '100% !important',
+                            minWidth: '100% !important',
+                            // Se usi 'scrolled', l'iframe all'interno avrà la sua barra di scorrimento nativa
+                        }
+                    }}
+                />
             </Box>
 
-            {/* FOOTER (Progress Bar) */}
-            <Box sx={{p: 2, bgcolor: currentTheme.barBg, borderTop: '1px solid rgba(0,0,0,0.05)'}}>
-                <Box sx={{display: 'flex', alignItems: 'center', gap: 2, maxWidth: 900, mx: 'auto'}}>
+            {/* FOOTER */}
+            <Box sx={{p: 2, bgcolor: themeStyles.card, borderTop: `1px solid ${themeStyles.border}`}}>
+                <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    width: '100%',
+                    maxWidth: 1200, // Puoi regolarlo o toglierlo per full-width
+                    mx: 'auto'
+                }}>
 
-                    {/* Pulsante Precedente (Sinistra) */}
-                    <IconButton
-                        onClick={() => epubService.prev()}
-                        sx={{
-                            left: {xs: 2, sm: 16},
-                            zIndex: 10,
-                            bgcolor: currentTheme.barBg,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                            '&:hover': {bgcolor: currentTheme.barBg, opacity: 0.9}
-                        }}
-                    >
-                        <NavigateBeforeIcon/>
-                    </IconButton>
+                    {/* SEZIONE SINISTRA: Pulsante centrato in questo spazio */}
+                    <Box sx={{flex: 1, display: 'flex', justifyContent: 'center'}}>
+                        <IconButton
+                            onClick={() => epubService.prev()}
+                            sx={{
+                                color: themeStyles.text,
+                                border: `1px solid ${themeStyles.border}`,
+                                borderRadius: '10px',
+                                width: 48,
+                                height: 48,
+                                '&:hover': {bgcolor: 'rgba(0,0,0,0.04)'}
+                            }}
+                        >
+                            <NavigateBeforeIcon/>
+                        </IconButton>
+                    </Box>
 
+                    {/* SEZIONE CENTRALE: La barra e le info */}
+                    <Box sx={{flex: 3, display: 'flex', flexDirection: 'column', gap: 0.5}}>
+                        <Slider
+                            value={bookProgress}
+                            marks={chaptersMarks}
+                            step={0.1}
+                            onChange={(e, v) => setBookProgress(v)}
+                            onChangeCommitted={(e, v) => {
+                                epubService.goToPercentage(v);
+                                if (document.activeElement) document.activeElement.blur();
+                            }}
+                            sx={{
+                                color: themeStyles.primary,
+                                height: 6,
+                                '& .MuiSlider-mark': {height: 6, width: 2, bgcolor: themeStyles.bg},
+                                '& .MuiSlider-thumb': {width: 14, height: 14}
+                            }}
+                        />
+                        <Box sx={{display: 'flex', justifyContent: 'space-between', px: 0.5}}>
+                            <Typography variant="caption" sx={{color: themeStyles.secondaryText, fontWeight: 500}}>
+                                {chapterStats.timeLeft}
+                            </Typography>
+                            <Typography variant="caption" sx={{fontWeight: 'bold', color: themeStyles.secondaryText}}>
+                                {bookProgress.toFixed(1)}%
+                            </Typography>
+                        </Box>
+                    </Box>
 
-                    <Typography variant="caption" sx={{minWidth: 60,  color: currentTheme.text,}}>
-                        {chapterStats.timeLeft} per fine cap.
-                    </Typography>
+                    {/* SEZIONE DESTRA: Pulsante centrato in questo spazio */}
+                    <Box sx={{flex: 1, display: 'flex', justifyContent: 'center'}}>
+                        <IconButton
+                            onClick={() => epubService.next()}
+                            sx={{
+                                color: themeStyles.text,
+                                border: `1px solid ${themeStyles.border}`,
+                                borderRadius: '10px',
+                                width: 48,
+                                height: 48,
+                                '&:hover': {bgcolor: 'rgba(0,0,0,0.04)'}
+                            }}
+                        >
+                            <NavigateNextIcon/>
+                        </IconButton>
+                    </Box>
 
-                    <Slider
-                        value={bookProgress}
-                        marks={chaptersMarks}
-                        step={0.1}
-                        onChange={(e, v) => setBookProgress(v)}
-                        onChangeCommitted={(e, v) => epubService.goToPercentage(v)}
-                        sx={{
-                            flexGrow: 1,
-                            color: PURPLE,
-                            '& .MuiSlider-mark': {height: 6, width: 2, bgcolor: currentTheme.barBg},
-                            '& .MuiSlider-thumb': {width: 14, height: 14}
-                        }}
-                    />
-
-                    <Typography variant="caption" sx={{minWidth: 50, fontWeight: 'bold', color: PURPLE}}>
-                        {bookProgress.toFixed(1)}%
-                    </Typography>
-
-                    {/* Pulsante Successivo (Destra) */}
-                    <IconButton
-                        onClick={() => epubService.next()}
-                        sx={{
-                            right: {xs: 2, sm: 16},
-                            zIndex: 10,
-                            bgcolor: currentTheme.barBg,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                            '&:hover': {bgcolor: currentTheme.barBg, opacity: 0.9}
-                        }}
-                    >
-                        <NavigateNextIcon/>
-                    </IconButton>
                 </Box>
             </Box>
 
-            {/* DRAWER INDICE (TOC) */}
-            <Drawer anchor="left" open={isTocOpen} onClose={() => setIsTocOpen(false)}>
-                <Box sx={{
-                    width: 280,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    bgcolor: currentTheme.bg,
-                    color: currentTheme.text,
-                    height: '100%'
-                }}>
-                    <Typography variant="h6" sx={{p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)'}}>
-                        Indice
-                    </Typography>
+            {/* DRAWER INDICE */}
+            <Drawer anchor="left" open={isTocOpen} onClose={() => setIsTocOpen(false)}
+                    PaperProps={{
+                        sx: {
+                            width: {xs: '100%', sm: 360},
+                            p: 3,
+                            bgcolor: themeStyles.card,
+                            color: themeStyles.text,
+                            borderRadius: {xs: 0, sm: '0 16px 16px 0'},
+                            transition: 'background-color 0.3s ease'
+                        },
+                    }}
 
-                    <List sx={{flexGrow: 1, overflowY: 'auto', p: 0}}>
-                        {toc.length > 0 ? (
-                            toc.map((chap, i) => (
-                                <ListItem key={i} disablePadding divider>
-                                    <ListItemButton
-                                        onClick={() => {
-                                            setIsTocOpen(false);
-                                            // Usa il nuovo metodo del service
-                                            epubService.goToChapterByIndex(i);
-                                        }}
-                                        selected={currentChapterIndex === i}
-                                    >
-                                        <ListItemText
-                                            primary={chap.label}
-                                            primaryTypographyProps={{
-                                                fontSize: '0.9rem',
-                                                fontWeight: currentChapterIndex === i ? 600 : 400,
-                                                color: currentChapterIndex === i ? PURPLE : 'inherit'
-                                            }}
-                                        />
-                                    </ListItemButton>
-                                </ListItem>
-                            ))
-                        ) : (
-                            <Typography variant="body2" sx={{p: 3, textAlign: 'center', opacity: 0.6}}>
-                                Nessun indice disponibile.
-                            </Typography>
-                        )}
+            >
+
+
+                <Box sx={{display: 'flex', flexDirection: 'column', height: '100%'}}>
+                    <Typography variant="h6" sx={{fontWeight: 800}}>Indice</Typography>
+                    <List sx={{overflowY: 'auto', p: 0}}>
+                        {toc.map((chap, i) => (
+                            <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
+                                <ListItemButton onClick={() => {
+                                    setIsTocOpen(false);
+                                    epubService.goToChapterByIndex(i);
+                                }} selected={currentChapterIndex === i}>
+                                    <ListItemText primary={chap.label}
+                                                  primaryTypographyProps={{
+                                                      fontWeight: currentChapterIndex === i ? 600 : 400,
+                                                      color: currentChapterIndex === i ? themeStyles.primary : 'inherit'
+                                                  }}/>
+                                </ListItemButton>
+                            </ListItem>
+                        ))}
                     </List>
                 </Box>
             </Drawer>
 
-            {/* Modal Impostazioni */}
-            <Dialog open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} fullWidth maxWidth="xs">
-                <DialogTitle>Personalizzazione</DialogTitle>
-                <DialogContent sx={{display: 'flex', flexDirection: 'column', gap: 3, mt: 1}}>
-                    {/*<Box>*/}
-                    {/*    <Typography variant="caption">Carattere</Typography>*/}
-                    {/*    <FormControl fullWidth size="small">*/}
-                    {/*        <Select value={settings.fontFamily}*/}
-                    {/*                onChange={(e) => updateSetting('fontFamily', e.target.value)}>*/}
-                    {/*            {AVAILABLE_FONTS.map(f => (*/}
-                    {/*                <MenuItem key={f.value} value={f.value}*/}
-                    {/*                          sx={{fontFamily: f.value}}>{f.label}</MenuItem>*/}
-                    {/*            ))}*/}
-                    {/*        </Select>*/}
-                    {/*    </FormControl>*/}
-                    {/*</Box>*/}
-
-                    <Box>
-                        <Typography variant="caption">Dimensione Testo ({settings.fontSize}%)</Typography>
-                        <Slider value={settings.fontSize} min={60} max={200} step={10}
-                                onChange={(e, v) => updateSetting('fontSize', v)}/>
-                    </Box>
-
-                    <Box>
-                        <Typography variant="caption">Tema</Typography>
-                        <ToggleButtonGroup value={settings.theme} exclusive fullWidth
-                                           onChange={(e, v) => v && updateSetting('theme', v)}>
-                            <ToggleButton value="light">Chiaro</ToggleButton>
-                            <ToggleButton value="sepia">Seppia</ToggleButton>
-                            <ToggleButton value="dark">Scuro</ToggleButton>
-                        </ToggleButtonGroup>
-                    </Box>
-
-                    <Box>
-                        <Typography variant="caption">Modalità di lettura</Typography>
-                        <ToggleButtonGroup value={settings.flow} exclusive fullWidth
-                                           onChange={(e, v) => v && updateSetting('flow', v)}>
-                            <ToggleButton value="paginated">Pagine</ToggleButton>
-                            <ToggleButton value="scrolled-doc">Continuo</ToggleButton>
-                        </ToggleButtonGroup>
-                    </Box>
-                </DialogContent>
-            </Dialog>
+            {/* COMPONENTE SETTINGS ESTERNO */}
+            <SettingsDrawer
+                open={settingsOpen}
+                onClose={() => setSettingsOpen(false)}
+                settings={settings}
+                setSettings={setSettings}
+                themeStyles={themeStyles}
+            />
         </Box>
     );
 }

@@ -1,0 +1,25 @@
+<svg width="100%" height="100%" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="shape-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.15"/>
+            <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.08"/>
+        </linearGradient>
+    </defs>
+
+    <!-- White background -->
+    <rect width="800" height="600" fill="#ffffff"/>
+
+    <!-- Soft abstract shapes -->
+    <circle cx="120" cy="100" r="100" fill="url(#shape-gradient)" />
+    <circle cx="720" cy="140" r="90" fill="url(#shape-gradient)" />
+    <circle cx="620" cy="520" r="120" fill="url(#shape-gradient)" />
+
+    <!-- Light waves -->
+    <path d="M0 420 Q200 340 400 420 T800 420 V600 H0 Z" fill="#a78bfa" opacity="0.08"/>
+    <path d="M0 460 Q200 380 400 460 T800 460 V600 H0 Z" fill="#7c3aed" opacity="0.06"/>
+
+    <!-- Minimal dots -->
+    <circle cx="280" cy="220" r="3" fill="#7c3aed" opacity="0.25"/>
+    <circle cx="500" cy="260" r="2.5" fill="#7c3aed" opacity="0.2"/>
+    <circle cx="200" cy="360" r="2.5" fill="#7c3aed" opacity="0.2"/>
+</svg>

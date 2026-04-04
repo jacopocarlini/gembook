@@ -5,7 +5,7 @@
 /* Se hai Bookerly localmente */
 @font-face {
   font-family: 'Bookerly';
-  src: url('/fonts/Bookerly.ttf') format('truetype');
+  src: url('/gembook/fonts/Bookerly.ttf') format('truetype');
 }
 
 :root {

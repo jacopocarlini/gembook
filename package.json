@@ -1,9 +1,9 @@
 {
-  "name": "my-reader",
+  "name": "gembook",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://jacopocarlini.github.io/librain/",
+  "homepage": "https://jacopocarlini.github.io/gembook/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

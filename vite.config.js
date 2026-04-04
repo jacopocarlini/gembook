@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   // Importante: mantiene il percorso corretto per GitHub Pages
-  base: '/librain/',
+  base: '/gembook/',
   plugins: [
     react(),
     VitePWA({
@@ -12,8 +12,8 @@ export default defineConfig({
       // Istruisce il plugin su quali file iniettare nell'HTML e nella cache
       includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Librain - Reader',
-        short_name: 'Librain',
+        name: 'GemBook - eReader',
+        short_name: 'GemBook',
         description: 'Il mio fantastico lettore EPUB',
         theme_color: '#5e35b1', // Il viola che usi nell'app
         background_color: '#ffffff', // Colore dello splash screen
