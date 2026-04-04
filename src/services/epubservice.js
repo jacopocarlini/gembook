@@ -33,22 +33,32 @@ export const processEpubFile = async (file) => {
                 const navigation = await tempBook.loaded.navigation;
                 let tocData = [];
 
-                const processItem = (item, depth = 0) => { // <-- Aggiungiamo depth = 0
+                const processItem = (item, depth = 0) => {
                     let safePct = 0;
+
                     if (item.href) {
+                        // 1. Otteniamo il riferimento al capitolo nella "spine"
                         const baseHref = item.href.split('#')[0];
                         const spineItem = tempBook.spine.get(baseHref);
-                        if (spineItem) safePct = (spineItem.index / tempBook.spine.length);
+
+                        if (spineItem) {
+                            // 2. Creiamo una "CFI" (l'indirizzo interno di Epub.js)
+                            // che punta esattamente all'inizio di quel file
+                            const startCfi = `epubcfi(${spineItem.cfiBase}!/4/1:0)`;
+
+                            // 3. Chiediamo la percentuale REALE basata sulle locations generate
+                            // Se non riesce, restituiamo 0 come fallback sicuro
+                            safePct = tempBook.locations.percentageFromCfi(startCfi) || 0;
+                        }
                     }
 
                     tocData.push({
-                        label: item.label?.trim() || 'Capitolo',
-                        percent: safePct,
+                        label: item.label?.trim() || null,
+                        percent: safePct, // <--- Ora è preciso al millimetro!
                         href: item.href,
-                        level: depth // <-- Salviamo il livello di indentazione nel DB
+                        level: depth
                     });
 
-                    // Se ci sono sottocapitoli, richiamiamo la funzione aumentando la profondità di 1
                     if (item.subitems && item.subitems.length > 0) {
                         item.subitems.forEach(sub => processItem(sub, depth + 1));
                     }
