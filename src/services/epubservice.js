@@ -249,6 +249,9 @@ class EpubService {
                     ${fontStack}
                     line-height: 1.6 !important;
                     margin: 0 !important;
+                
+                    /* Rimuove il flash blu al tocco su Chrome/Android */
+                    -webkit-tap-highlight-color: transparent;
                 }
                 
                 /* Applichiamo l'allineamento solo se scelto nei settings */

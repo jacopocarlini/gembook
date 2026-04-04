@@ -59,6 +59,7 @@ export default function Reader({ bookId, onClose, settings, setSettings, themeSt
             await epubService.init({
                 bookData,
                 elementId: viewerRef.current,
+                // Passiamo i settings correnti solo all'avvio
                 settings: settings,
                 onReady: () => {
                     if (!isMounted) return;
@@ -80,14 +81,52 @@ export default function Reader({ bookId, onClose, settings, setSettings, themeSt
             isMounted = false;
             epubService.destroy();
         };
-    }, [bookId, settings, t]);
+        // RIMOSSO settings da qui: il libro non deve morire se cambio font
+    }, [bookId, t]);
 
     // Applicazione Settings (Font, Temi)
+// Applicazione Settings (Font, Temi E Layout)
     useEffect(() => {
-        if (isBookReady && epubService) {
-            epubService.applySettings(settings);
+        if (!isBookReady || !epubService.currentSettings) return;
+
+        // 1. Controlliamo se è cambiato il modo di lettura (Scroll/Paginato)
+        const hasLayoutChanged =
+            settings.readingMode !== epubService.currentSettings.readingMode ||
+            settings.pageLayout !== epubService.currentSettings.pageLayout;
+
+        if (hasLayoutChanged) {
+            // Se il layout è cambiato, dobbiamo reinizializzare (altrimenti non lo prende)
+            const reinitBook = async () => {
+                const bookData = await db.books.get(bookId);
+                if (!bookData) return;
+
+                await epubService.init({
+                    bookData,
+                    elementId: viewerRef.current,
+                    settings: settings, // Usa i nuovi settings di layout
+                    onReady: () => {
+                        setIsBookReady(true);
+                        setChaptersMarks(epubService.getChapterMarks());
+                    },
+                    onRelocated: (data) => {
+                        setChapterStats({ title: data.chapterTitle, timeStats: data.timeStats });
+                        setCurrentChapterIndex(data.chapterIndex);
+                        setBookProgress(data.percentage);
+                        db.books.update(bookId, { currentCfi: data.cfi, progress: data.percentage });
+                    }
+                });
+            };
+            reinitBook();
+
+        } else {
+            // 2. Se è cambiato solo il Font/Colore, usiamo il debounce veloce
+            const timer = setTimeout(() => {
+                epubService.applySettings(settings);
+            }, 250);
+
+            return () => clearTimeout(timer);
         }
-    }, [settings, isBookReady]);
+    }, [settings, isBookReady, bookId]);
 
     useEffect(() => {
         const handleKeyDown = (event) => {
