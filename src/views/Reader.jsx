@@ -60,6 +60,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     // Inizializzazione Libro
     useEffect(() => {
+        console.log("useEffect 1");
         let isMounted = true;
 
         const loadBook = async () => {
@@ -87,7 +88,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
                 },
                 onSelected: (data) => {
-                    console.log('onSelected', data);
                     setSelectionInfo(data);
                 }
             });
@@ -104,6 +104,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     // Applicazione Settings (Font, Temi)
 // Applicazione Settings (Font, Temi E Layout)
     useEffect(() => {
+        console.log("useEffect 2");
+
         if (!isBookReady || !epubService.currentSettings) return;
 
         // 1. Controlliamo se è cambiato il modo di lettura (Scroll/Paginato)
@@ -151,6 +153,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     }, [settings, isBookReady, bookId]);
 
     useEffect(() => {
+        console.log("useEffect 3");
+
         const handleKeyDown = (event) => {
             if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
             if (event.key === 'ArrowLeft') epubService.prev();

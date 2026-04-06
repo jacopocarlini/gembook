@@ -95,7 +95,7 @@ class EpubService {
         this.currentSettings = null;
     }
 
-    async init({ bookData, elementId, settings, onReady, onRelocated, onSelected }) {        // 1. Distruzione totale
+    async init({bookData, elementId, settings, onReady, onRelocated, onSelected}) {        // 1. Distruzione totale
         if (this.rendition) {
             this.rendition.destroy();
             this.rendition = null;
@@ -109,13 +109,11 @@ class EpubService {
             ? document.getElementById(elementId)
             : elementId;
 
-        if (container) {
-            container.innerHTML = '';
-        }
 
         this.bookData = bookData;
         this.currentSettings = settings;
         this.book = ePub(bookData.file);
+        this.book.allowScript = true;
 
         // 3. Configurazione Modalità
         let manager = 'default';
@@ -138,8 +136,10 @@ class EpubService {
             spread: spreadMode,
             manager: manager,
             flow: flow,
-            allowScript: true
+            allowScript: true,
+            method: "write"
         });
+        await this.rendition.display(bookData.currentCfi || undefined);
 
         this.applySettings(settings);
 
@@ -147,26 +147,47 @@ class EpubService {
             this.book.locations.load(bookData.locations);
         }
 
-        await this.rendition.display(bookData.currentCfi || undefined);
 
-        this.rendition.hooks.content.register((contents) => {
-            const doc = contents.document;
+        this.rendition.hooks.render.register((view) => {
 
-            // Blocca il menù contestuale (tasto destro o pressione prolungata)
-            doc.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                return false;
-            }, { capture: true });
-
-            // Gestione Custom Selection (opzionale per il tuo menù futuro)
-            // Se vorrai gestire la selezione "manuale", userai l'evento 'selected' di epub.js
+            // if (view.iframe) {
+            //     // Forza un ricalcolo del layout dopo che l'iframe è stato renderizzato
+            //     setTimeout(() => {
+            //         if (this.rendition.manager) {
+            //             this.rendition.manager.resize();
+            //         }
+            //     }, 100);
+            // }
         });
 
-        if (onReady) onReady();
+        this.rendition.hooks.content.register((contents) => {
+
+            // const doc = contents.document;
+            //
+            // // Blocca il menù contestuale (tasto destro o pressione prolungata)
+            // doc.addEventListener('contextmenu', (e) => {
+            //     e.preventDefault();
+            //     return false;
+            // }, {capture: true});
+            //
+            // // Gestione Custom Selection (opzionale per il tuo menù futuro)
+            // // Se vorrai gestire la selezione "manuale", userai l'evento 'selected' di epub.js
+        });
+
+
+        this.rendition.on("added", (view) => {
+            // if (view.iframe) {
+            //     // Rimuoviamo la sandbox non appena l'iframe viene aggiunto al DOM
+            //     view.iframe.removeAttribute("sandbox");
+            //     // Opzionale: forziamo l'attributo allow-scripts se il sistema lo reinserisce
+            //     view.iframe.setAttribute("allow", "scripts; same-origin");
+            // }
+        });
 
         this.rendition.on('relocated', (data) => this.handleRelocated(data, onRelocated));
 
         this.rendition.on('click', (e) => {
+
             const contents = this.rendition.manager.getContents()[0];
             if (!contents) return;
             const selection = contents.window.getSelection().toString();
@@ -180,29 +201,42 @@ class EpubService {
 
         });
 
+        this.rendition.on("rendered", (section) => {
+
+            // setTimeout(() => {
+            //     if (this.rendition && this.rendition.manager) {
+            //         this.rendition.manager.resize();
+            //     }
+            // }, 100);
+        });
+
         this.rendition.on("contextmenu", (e) => {
+
             e.preventDefault();
         });
 
-            this.rendition.on('selected', (cfiRange, contents) => {
-                console.log(cfiRange);
-                const selection = contents.window.getSelection();
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                const text = selection.toString();
+        this.rendition.on('selected', (cfiRange, contents) => {
+            const selection = contents.window.getSelection();
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            const text = selection.toString();
 
-                if (text && text.trim().length > 0 && onSelected) {
-                    // Passiamo il testo e le coordinate al componente React
-                    onSelected({
-                        text: text,
-                        cfiRange: cfiRange,
-                        rect: rect // Contiene top, left, width, height
-                    });
-                }
-            });
+            if (text && text.trim().length > 0 && onSelected) {
+                // Passiamo il testo e le coordinate al componente React
+                onSelected({
+                    text: text,
+                    cfiRange: cfiRange,
+                    rect: rect // Contiene top, left, width, height
+                });
+            }
+        });
+
+        if (onReady) onReady();
+
     }
 
     handleRelocated(locationData, callback) {
+
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
@@ -358,24 +392,12 @@ class EpubService {
 
     next() {
         if (!this.rendition) return;
-        if (this.currentSettings?.readingMode === 'Chapters') {
-            const current = this.rendition.currentLocation();
-            const nextSection = this.book.spine.get(current.start.index + 1);
-            if (nextSection) return this.rendition.display(nextSection.href);
-        }
         this.rendition.next();
     }
 
     prev() {
         if (!this.rendition) return;
-        if (this.currentSettings?.readingMode === 'Chapters') {
-            const current = this.rendition.currentLocation();
-            if (current.start.index > 0) {
-                const prevSection = this.book.spine.get(current.start.index - 1);
-                if (prevSection) return this.rendition.display(prevSection.href);
-            }
-        }
-        this.rendition.prev();
+        return this.rendition.prev();
     }
 
     goToPercentage(val) {
