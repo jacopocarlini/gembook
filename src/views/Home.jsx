@@ -66,7 +66,8 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
 
     return (
         <Box sx={{
-            height: '100svh',
+            height: '100%',
+            minHeight: '100vh',
             bgcolor: themeStyles.bg,
             color: themeStyles.text,
             transition: 'background-color 0.3s ease',
