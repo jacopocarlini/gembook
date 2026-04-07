@@ -31,7 +31,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     // Stati UI e Info Libro
     const [bookTitle, setBookTitle] = useState(t('loading'));
-    const [time, setTime] = useState(new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}));
+    const [time, setTime] = useState(new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}));
     const [isBookReady, setIsBookReady] = useState(false);
 
     // Stati Navigazione e Progresso
@@ -53,7 +53,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     // Aggiornamento Orologio
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date().toLocaleTimeString([], {
-            hour: '2-digit', minute: '2-digit'
+            hour: '2-digit', minute: '2-digit', hour12: false
         })), 10000);
         return () => clearInterval(timer);
     }, []);
