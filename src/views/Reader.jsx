@@ -188,7 +188,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     return (
         <Box sx={{
-            display: 'flex', flexDirection: 'column', height: '100dvh',
+            display: 'flex', flexDirection: 'column',
+            height: '100vh',
             bgcolor: themeStyles.bg, color: themeStyles.text, overflow: 'hidden'
         }}>
 
