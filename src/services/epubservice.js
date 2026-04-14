@@ -291,8 +291,13 @@ class EpubService {
             }
 
             const remainingChapterLocations = Math.max(0, endOfChapterLoc - currentLoc);
+            console.log('endOfChapterLoc', endOfChapterLoc, remainingChapterLocations);
             timeStats.chapterMinutes = Math.round((remainingChapterLocations * (300/caratteriPerParola)) / wpm );
 
+            if (timeStats.chapterMinutes === timeStats.totalMinutes){
+                timeStats.chapterMinutes = 0;
+            }
+            console.log('timeStats', timeStats);
             if (percentage >= 0.99) timeStats.isFinished = true;
         }
 

@@ -35,6 +35,7 @@ const resources = {
             "mode_infinity": "Continuo",
             "mode_chapters": "Capitoli",
             "loading": "Caricamento...",
+            "cover": "Copertina",
             "unknown_title": "Titolo sconosciuto",
             "index_title": "Indice",
 
@@ -67,6 +68,7 @@ const resources = {
             "import_error": "Error during import",
             "importing_book": "Analyzing book...",
             "no_cover": "No Cover",
+            "cover": "Cover",
             "settings_title": "Settings",
             "theme_label": "Theme",
             "font_size_label": "Font Size",

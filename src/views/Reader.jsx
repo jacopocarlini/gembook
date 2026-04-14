@@ -208,7 +208,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                             {bookTitle}
                         </Typography>
                         <Typography variant="caption" noWrap sx={{display: 'block', opacity: 0.7}}>
-                            {chapterStats.title || t('loading')}
+                            {chapterStats.title}
                         </Typography>
                     </Box>
 
