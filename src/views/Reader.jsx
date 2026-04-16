@@ -24,6 +24,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import CloseIcon from '@mui/icons-material/Close';
 import {SettingsDrawer} from './Settings';
+import { GlobalStyles } from '@mui/material';
 
 export default function Reader({bookId, onClose, settings, setSettings, themeStyles}) {
     const {t} = useTranslation();
@@ -60,7 +61,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     // Inizializzazione Libro
     useEffect(() => {
-        console.log("useEffect 1");
+        console.log("useEffect init book")
         let isMounted = true;
 
         const loadBook = async () => {
@@ -85,6 +86,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     setChapterStats({title: data.chapterTitle, timeStats: data.timeStats});
                     setCurrentChapterIndex(data.chapterIndex);
                     setBookProgress(data.percentage);
+                    console.log(data);
                     db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
                 },
                 onSelected: (data) => {
@@ -104,7 +106,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     // Applicazione Settings (Font, Temi)
 // Applicazione Settings (Font, Temi E Layout)
     useEffect(() => {
-        console.log("useEffect 2");
+        console.log("useEffect settings")
 
         if (!isBookReady || !epubService.currentSettings) return;
 
@@ -135,7 +137,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                         db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
                     },
                     onSelected: (data) => {
-                        console.log('onSelected', data);
                         setSelectionInfo(data);
                     }
                 });
@@ -150,10 +151,9 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
             return () => clearTimeout(timer);
         }
-    }, [settings, isBookReady, bookId]);
+    }, [settings]);
 
     useEffect(() => {
-        console.log("useEffect 3");
 
         const handleKeyDown = (event) => {
             if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
@@ -193,6 +193,26 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             bgcolor: themeStyles.bg, color: themeStyles.text, overflow: 'hidden'
         }}>
 
+            <GlobalStyles styles={{
+                '*': {
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: `${themeStyles.text} ${themeStyles.bg}`,
+                },
+                '*::-webkit-scrollbar': {
+                    width: '10px',
+                    height: '10px',
+                },
+                '*::-webkit-scrollbar-track': {
+                    background: themeStyles.bg,
+                },
+                '*::-webkit-scrollbar-thumb': {
+                    backgroundColor: themeStyles.text,
+                    borderRadius: '10px',
+                    border: `3px solid ${themeStyles.bg}`,
+                    opacity: 0.5,
+                }
+            }} />
+
             {/* HEADER */}
             <AppBar position="static" elevation={0} sx={{
                 bgcolor: themeStyles.card, color: themeStyles.text,
@@ -221,7 +241,16 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
             {/* AREA LETTURA */}
             <Box sx={{flexGrow: 1, position: 'relative', overflow: 'hidden', px: {xs: 1, sm: 2}}}>
-                <Box ref={viewerRef} sx={{height: '100%', width: '100%'}}/>
+                <Box
+                    ref={viewerRef}
+                    sx={{
+                        position: 'absolute',
+                        top: 0,
+                        left: {xs: 8, sm: 16}, // per mantenere il padding (px: 1 o 2)
+                        right: {xs: 8, sm: 16},
+                        bottom: 0
+                    }}
+                />
             </Box>
 
             {/* FOOTER */}

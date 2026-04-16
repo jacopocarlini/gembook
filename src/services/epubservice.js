@@ -115,9 +115,10 @@ class EpubService {
         this.book = ePub(bookData.file);
         this.book.allowScript = true;
 
-        // 3. Configurazione Modalità
         let manager = 'default';
         let flow = 'paginated';
+
+        const spreadMode = settings?.pageLayout === 'double' ? 'auto' : 'none';
 
         if (settings.readingMode === 1) {
             manager = 'continuous';
@@ -127,9 +128,6 @@ class EpubService {
             flow = 'scrolled-doc';
         }
 
-        const spreadMode = settings?.pageLayout === 'double' ? 'auto' : 'none';
-
-        // 4. Rendering
         this.rendition = this.book.renderTo(container, {
             width: '100%',
             height: '100%',
@@ -137,72 +135,23 @@ class EpubService {
             manager: manager,
             flow: flow,
             allowScript: true,
-            method: "write",
             allowScriptedContent: true
         });
-        await this.rendition.display(bookData.currentCfi || undefined);
-
-        this.rendition.themes.default({
-            "body": {
-                "transition": "transform 0.3s ease-in-out" // Aggiunge fluidità
-            }
-        });
-
-        this.applySettings(settings);
 
         if (bookData.locations) {
             this.book.locations.load(bookData.locations);
         }
 
 
-        this.rendition.hooks.render.register((view) => {
+        this.applySettings(settings);
 
-            // if (view.iframe) {
-            //     // Forza un ricalcolo del layout dopo che l'iframe è stato renderizzato
-            //     setTimeout(() => {
-            //         if (this.rendition.manager) {
-            //             this.rendition.manager.resize();
-            //         }
-            //     }, 100);
-            // }
+        this.rendition.themes.default({
+            "body": {
+                "transition": "transform 0.3s ease-in-out",
+                "width": "50%",
+            }
         });
 
-        this.rendition.hooks.content.register((contents) => {
-            // const el = contents.document.documentElement;
-            //
-            // // Fix per iOS: rende l'elemento cliccabile per Safari
-            // el.style.cursor = "pointer";
-            //
-            // el.addEventListener('click', (e) => {
-            //
-            //     const selection = contents.window.getSelection().toString();
-            //     if (selection.length > 0) return;
-            //
-            //     // Recuperiamo la larghezza del viewport della rendition
-            //     const width = this.rendition.manager.container.clientWidth;
-            //
-            //     // Usiamo pageX o clientX dal touch/click
-            //     const x = e.clientX;
-            //
-            //     if (x < width * 0.25) {
-            //         this.prev();
-            //     } else if (x > width * 0.75) {
-            //         this.next();
-            //     }
-            //
-            //     if (onSelected) onSelected(null);
-            // });
-        });
-
-
-        this.rendition.on("added", (view) => {
-            // if (view.iframe) {
-            //     // Rimuoviamo la sandbox non appena l'iframe viene aggiunto al DOM
-            //     view.iframe.removeAttribute("sandbox");
-            //     // Opzionale: forziamo l'attributo allow-scripts se il sistema lo reinserisce
-            //     view.iframe.setAttribute("allow", "scripts; same-origin");
-            // }
-        });
 
         this.rendition.on('relocated', (data) => {
 
@@ -223,14 +172,6 @@ class EpubService {
 
         });
 
-        this.rendition.on("rendered", (section) => {
-
-            // setTimeout(() => {
-            //     if (this.rendition && this.rendition.manager) {
-            //         this.rendition.manager.resize();
-            //     }
-            // }, 100);
-        });
 
         this.rendition.on("contextmenu", (e) => {
             e.preventDefault();
@@ -251,6 +192,17 @@ class EpubService {
                 });
             }
         });
+
+        const targetCfi = bookData.currentCfi;
+        await this.rendition.display(bookData.currentCfi || undefined);
+
+        if (targetCfi) {
+            setTimeout(() => {
+                if (this.rendition) {
+                    this.rendition.display(targetCfi);
+                }
+            }, 100);
+        }
 
         if (onReady) onReady();
 
@@ -291,13 +243,11 @@ class EpubService {
             }
 
             const remainingChapterLocations = Math.max(0, endOfChapterLoc - currentLoc);
-            console.log('endOfChapterLoc', endOfChapterLoc, remainingChapterLocations);
             timeStats.chapterMinutes = Math.round((remainingChapterLocations * (300/caratteriPerParola)) / wpm );
 
             if (timeStats.chapterMinutes === timeStats.totalMinutes){
                 timeStats.chapterMinutes = 0;
             }
-            console.log('timeStats', timeStats);
             if (percentage >= 0.99) timeStats.isFinished = true;
         }
 
@@ -350,6 +300,13 @@ class EpubService {
                 : '';
 
             style.innerHTML = `
+                /* 1. COMUNICA AL BROWSER IL TEMA GENERALE */
+                html {
+                    color-scheme: ${settings.theme === 'dark' ? 'dark' : 'light'};
+                    scrollbar-width: thin;
+                    scrollbar-color: ${active.text} ${active.bg};
+                }
+
                 body {
                     background-color: ${active.bg} !important;
                     color: ${active.text} !important;
@@ -366,6 +323,25 @@ class EpubService {
             
                     /* Rimuove il flash blu al tocco */
                     -webkit-tap-highlight-color: transparent;
+                }
+
+                /* 2. STILIZZAZIONE SPECIFICA PER CHROME / SAFARI / EDGE */
+                ::-webkit-scrollbar {
+                    width: 8px;
+                    height: 8px;
+                    background-color: ${active.bg};
+                }
+                ::-webkit-scrollbar-track {
+                    background-color: ${active.bg};
+                }
+                ::-webkit-scrollbar-thumb {
+                    background-color: ${active.text};
+                    border-radius: 4px;
+                    /* Crea un margine per non farla sembrare un blocco unico */
+                    border: 2px solid ${active.bg}; 
+                }
+                ::-webkit-scrollbar-corner {
+                    background-color: ${active.bg};
                 }
                 
                 /* Impedisce anche il menù contestuale classico (tasto destro / pressione lunga) */
@@ -405,8 +381,7 @@ class EpubService {
 
                 /* Rimuoviamo il rientro solo se stiamo giustificando tutto */
                 ${settings.textAlign === 'justify' ? 'p { text-indent: 0; }' : ''}
-            `;
-            head.appendChild(style);
+            `;            head.appendChild(style);
 
             if (settings.fontFamily && settings.fontFamily !== 'Original') {
                 const link = doc.createElement("link");

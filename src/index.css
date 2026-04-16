@@ -125,3 +125,6 @@ code {
     background: var(--code-bg);
 }
 
+.epub-view {
+    width: 99% !important;
+}

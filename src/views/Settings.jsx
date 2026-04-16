@@ -103,28 +103,6 @@ export const SettingsDrawer = ({ open, onClose, settings, setSettings, themeStyl
 
                 <Divider sx={{ borderColor: themeStyles.border }} />
 
-                {/* JUSTIFY TEXT */}
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', opacity: 0.7 }}>
-                        {t('justify_label')}
-                    </Typography>
-                    <IconButton
-                        size="small"
-                        onClick={() => updateSetting('textAlign', settings.textAlign === 'justify' ? 'original' : 'justify')}
-                        sx={{
-                            bgcolor: settings.textAlign === 'justify' ? themeStyles.card : themeStyles.paper,
-                            color: settings.textAlign === 'justify' ? themeStyles.primary : 'grey.500',
-                            borderRadius: '8px',
-                            boxShadow: settings.textAlign === 'justify' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none',
-                            p: 1
-                        }}
-                    >
-                        <FormatAlignJustifyIcon fontSize="small" />
-                    </IconButton>
-                </Box>
-
-                <Divider sx={{ borderColor: themeStyles.border }} />
-
                 {/* FONT FAMILY */}
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold', opacity: 0.7 }}>

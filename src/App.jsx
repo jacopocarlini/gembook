@@ -180,7 +180,6 @@ function App() {
                     settings={settings}
                     setSettings={setSettings}
                     themeStyles={currentThemeStyles}
-                    PRIMARY_PURPLE={PRIMARY_PURPLE}
                 />
             ) : (
                 <Reader
