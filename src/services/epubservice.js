@@ -148,7 +148,6 @@ class EpubService {
         this.rendition.themes.default({
             "body": {
                 "transition": "transform 0.3s ease-in-out",
-                "width": "50%",
             }
         });
 
@@ -196,13 +195,13 @@ class EpubService {
         const targetCfi = bookData.currentCfi;
         await this.rendition.display(bookData.currentCfi || undefined);
 
-        if (targetCfi) {
-            setTimeout(() => {
-                if (this.rendition) {
-                    this.rendition.display(targetCfi);
-                }
-            }, 100);
-        }
+        // if (targetCfi) {
+        //     setTimeout(() => {
+        //         if (this.rendition) {
+        //             this.rendition.display(targetCfi);
+        //         }
+        //     }, 100);
+        // }
 
         if (onReady) onReady();
 
@@ -381,7 +380,9 @@ class EpubService {
 
                 /* Rimuoviamo il rientro solo se stiamo giustificando tutto */
                 ${settings.textAlign === 'justify' ? 'p { text-indent: 0; }' : ''}
-            `;            head.appendChild(style);
+            `;
+
+            head.appendChild(style);
 
             if (settings.fontFamily && settings.fontFamily !== 'Original') {
                 const link = doc.createElement("link");

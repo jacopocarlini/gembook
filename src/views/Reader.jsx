@@ -246,10 +246,15 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     sx={{
                         position: 'absolute',
                         top: 0,
-                        left: {xs: 8, sm: 16}, // per mantenere il padding (px: 1 o 2)
+                        bottom: 0,
+                        left: {xs: 8, sm: 16},
                         right: {xs: 8, sm: 16},
-                        bottom: 0
+
+                        '& .epub-view': {
+                            width: settings.readingMode === 2 ? '99% !important' : '100%',
+                        }
                     }}
+
                 />
             </Box>
 
