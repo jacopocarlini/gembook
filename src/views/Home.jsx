@@ -66,14 +66,13 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
 
     return (
         <Box sx={{
-            height: '100%',
-            minHeight: '100vh',
+            height: '100vh',           // Blocca l'altezza all'area visibile
+            display: 'flex',
+            flexDirection: 'column',
             bgcolor: themeStyles.bg,
             color: themeStyles.text,
+            overflow: 'hidden',        // Impedisce lo scroll della pagina intera
             transition: 'background-color 0.3s ease',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column'
         }}>
             <SettingsDrawer
                 open={settingsOpen}
@@ -83,21 +82,20 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                 themeStyles={themeStyles}
             />
 
-            <AppBar position="static" elevation={0} sx={{ bgcolor: 'transparent', py: { xs: 1, sm: 2 } }}>
-                <Toolbar sx={{ px: { xs: 2, sm: 6 }, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+            {/* 1. HEADER FISSO */}
+            <AppBar position="static" elevation={0} sx={{ bgcolor: 'transparent', flexShrink: 0 }}>
+                <Toolbar sx={{ px: { xs: 2, sm: 6 }, py: { xs: 1, sm: 2 }, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
 
                     {/* LOGO AREA */}
                     <Box sx={{ display: 'flex', alignItems: 'center', flex: { xs: 1, md: 'none' }, minWidth: { md: '150px' } }}>
                         <img src="/gembook/icon.png" alt="Logo" style={{ width: 35, height: 35 }} />
-                        <Typography variant="h6" sx={{ color: themeStyles.text, fontWeight: 800, ml: 1.5, display: { xs: 'block', sm: 'block' } }}>
+                        <Typography variant="h6" sx={{ color: themeStyles.text, fontWeight: 800, ml: 1.5 }}>
                             GemBook
                         </Typography>
                     </Box>
 
-                    {/* CENTER ACTIONS */}
+                    {/* CENTER ACTIONS (Desktop Search + Add) */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 }, flexGrow: { md: 1 }, justifyContent: { xs: 'flex-end', md: 'center' } }}>
-
-                        {/* Search Desktop */}
                         <Box sx={{
                             display: { xs: 'none', md: 'flex' },
                             bgcolor: themeStyles.card,
@@ -108,14 +106,13 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                         }}>
                             <SearchIcon sx={{ color: 'grey.400', fontSize: 20, mr: 1 }} />
                             <InputBase
-                                placeholder={t('search_placeholder')} // <-- Tradotto
+                                placeholder={t('search_placeholder')}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 sx={{ flex: 1, fontSize: '0.9rem', color: themeStyles.text }}
                             />
                         </Box>
 
-                        {/* Add Book Button */}
                         <Button
                             component="label"
                             variant="contained"
@@ -125,12 +122,11 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                                 borderRadius: '12px',
                                 textTransform: 'none',
                                 px: { xs: 1.5, sm: 3 },
-                                minWidth: { xs: 'auto', sm: '120px' },
                                 fontWeight: 'bold'
                             }}
                         >
-                            <AddIcon sx={{ display: { xs: 'block', sm: 'block' } }} />
-                            <Box sx={{ display: { xs: 'block', sm: 'block' } }}>{t('add_book')}</Box> {/* <-- Tradotto */}
+                            <AddIcon />
+                            <Box sx={{ ml: 1, display: { xs: 'none', sm: 'block' } }}>{t('add_book')}</Box>
                             <input type="file" accept=".epub" hidden onChange={handleImport} />
                         </Button>
                     </Box>
@@ -144,20 +140,20 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                 </Toolbar>
             </AppBar>
 
-            <Box sx={{ flexGrow: 1, overflowY: 'auto', mt: { xs: 1, sm: 2 } }}>
+            {/* 2. AREA CONTROLLI FISSA (Search Mobile + Tabs) */}
+            <Box sx={{ flexShrink: 0, mt: 1 }}>
                 <Container maxWidth="md">
-
                     {/* Search Mobile */}
                     <Box sx={{
                         display: { xs: 'flex', md: 'none' },
                         bgcolor: themeStyles.card,
-                        borderRadius: '12px', px: 2, py: 0.5, mb: 3,
+                        borderRadius: '12px', px: 2, py: 0.5, mb: 2,
                         border: `1px solid ${themeStyles.border}`,
                         alignItems: 'center'
                     }}>
                         <SearchIcon sx={{ color: 'grey.400', fontSize: 20, mr: 1 }} />
                         <InputBase
-                            placeholder={t('search_placeholder')} // <-- Tradotto
+                            placeholder={t('search_placeholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             sx={{ flex: 1, fontSize: '0.9rem', color: themeStyles.text }}
@@ -165,27 +161,25 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                     </Box>
 
                     {/* TABS */}
-                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: { xs: 4, sm: 6 } }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
                         <Tabs
                             value={tabValue}
                             onChange={(e, v) => setTabValue(v)}
                             variant="scrollable"
                             scrollButtons="auto"
-                            allowScrollButtonsMobile
                             sx={{
                                 bgcolor: themeStyles.paper,
-                                borderRadius: '16px', p: 0.8, minHeight: 'auto',
+                                borderRadius: '16px', p: 0.5, minHeight: 'auto',
                                 '& .MuiTabs-indicator': { display: 'none' }
                             }}
                         >
-                            {/* Cicliamo sulle chiavi di traduzione anziché su stringhe fisse */}
                             {['tab_all', 'tab_to_read', 'tab_finished'].map((tabKey) => (
                                 <Tab
                                     key={tabKey}
-                                    label={t(tabKey)} // <-- Tradotto
+                                    label={t(tabKey)}
                                     sx={{
                                         borderRadius: '12px', textTransform: 'none', fontWeight: 'bold',
-                                        minWidth: { xs: 'auto', sm: 120 },
+                                        minHeight: '40px', minWidth: { xs: '80px', sm: 120 },
                                         color: 'grey.500',
                                         '&.Mui-selected': { bgcolor: themeStyles.card, color: themeStyles.text }
                                     }}
@@ -193,8 +187,19 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                             ))}
                         </Tabs>
                     </Box>
+                </Container>
+            </Box>
 
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {/* 3. AREA LIBRI SCROLLABILE */}
+            <Box sx={{
+                flexGrow: 1,
+                overflowY: 'auto',
+                pt: 1,
+                pb: 4,
+                WebkitOverflowScrolling: 'touch' // Ottimizzazione scroll per mobile
+            }}>
+                <Container maxWidth="md">
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                         {filteredBooks.length > 0 ? (
                             filteredBooks.map(book => (
                                 <BookCard
@@ -207,13 +212,9 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                             ))
                         ) : (
                             <Box sx={{
-                                textAlign: 'center',
-                                py: { xs: 6, md: 10 },
-                                px: 2,
-                                bgcolor: themeStyles.card,
-                                borderRadius: '16px',
+                                textAlign: 'center', py: 10, px: 2,
+                                bgcolor: themeStyles.card, borderRadius: '16px',
                                 border: `1px dashed ${themeStyles.border}`,
-                                mt: 2
                             }}>
                                 <Typography variant="h6" sx={{ color: themeStyles.text, fontWeight: 'bold', mb: 1 }}>
                                     {books.length === 0 ? t('empty_library_title') : t('empty_search_title')}
@@ -227,6 +228,7 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                 </Container>
             </Box>
 
+            {/* Menu contestuale e Backdrop (fuori dal flusso di layout) */}
             <Menu
                 anchorEl={menuState.anchor}
                 open={Boolean(menuState.anchor)}
@@ -236,19 +238,18 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
                         bgcolor: themeStyles.card,
                         color: themeStyles.text,
                         borderRadius: '12px',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                         border: `1px solid ${themeStyles.border}`
                     }
                 }}
             >
-                <MenuItem onClick={handleDelete} sx={{ color: 'error.main', fontWeight: 'bold', fontSize: '0.9rem', px: 3 }}>
-                    {t('delete_book')} {/* <-- Tradotto */}
+                <MenuItem onClick={handleDelete} sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                    {t('delete_book')}
                 </MenuItem>
             </Menu>
 
             <Backdrop sx={{ color: '#fff', zIndex: 2000, flexDirection: 'column', gap: 2 }} open={isImporting}>
                 <CircularProgress color="inherit" />
-                <Typography>{t('importing_book')}</Typography> {/* <-- Tradotto */}
+                <Typography>{t('importing_book')}</Typography>
             </Backdrop>
         </Box>
     );

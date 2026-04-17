@@ -33,7 +33,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     // Stati UI e Info Libro
     const [bookTitle, setBookTitle] = useState(t('loading'));
     const [time, setTime] = useState(new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}));
-    const [isBookReady, setIsBookReady] = useState(false);
 
     // Stati Navigazione e Progresso
     const [bookProgress, setBookProgress] = useState(0);
@@ -49,8 +48,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     const [isTocOpen, setIsTocOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
-    const [selectionInfo, setSelectionInfo] = useState(null);
-
     // Aggiornamento Orologio
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date().toLocaleTimeString([], {
@@ -61,7 +58,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     // Inizializzazione Libro
     useEffect(() => {
-        console.log("useEffect init book")
         let isMounted = true;
 
         const loadBook = async () => {
@@ -78,7 +74,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 settings: settings,
                 onReady: () => {
                     if (!isMounted) return;
-                    setIsBookReady(true);
                     setChaptersMarks(epubService.getChapterMarks());
                 },
                 onRelocated: (data) => {
@@ -86,11 +81,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     setChapterStats({title: data.chapterTitle, timeStats: data.timeStats});
                     setCurrentChapterIndex(data.chapterIndex);
                     setBookProgress(data.percentage);
-                    console.log(data);
                     db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
-                },
-                onSelected: (data) => {
-                    setSelectionInfo(data);
                 }
             });
         };
@@ -101,62 +92,11 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             epubService.destroy();
         };
         // RIMOSSO settings da qui: il libro non deve morire se cambio font
-    }, [bookId, t]);
-
-    // Applicazione Settings (Font, Temi)
-// Applicazione Settings (Font, Temi E Layout)
-    useEffect(() => {
-        console.log("useEffect settings")
-
-        if (!isBookReady || !epubService.currentSettings) return;
-
-        // 1. Controlliamo se è cambiato il modo di lettura (Scroll/Paginato)
-        const hasLayoutChanged =
-            settings.theme !== epubService.currentSettings.theme ||
-            settings.readingMode !== epubService.currentSettings.readingMode ||
-            settings.pageLayout !== epubService.currentSettings.pageLayout;
-
-        if (hasLayoutChanged) {
-            // Se il layout è cambiato, dobbiamo reinizializzare (altrimenti non lo prende)
-            const reinitBook = async () => {
-                const bookData = await db.books.get(bookId);
-                if (!bookData) return;
-
-                await epubService.init({
-                    bookData,
-                    elementId: viewerRef.current,
-                    settings: settings, // Usa i nuovi settings di layout
-                    onReady: () => {
-                        setIsBookReady(true);
-                        setChaptersMarks(epubService.getChapterMarks());
-                    },
-                    onRelocated: (data) => {
-                        setChapterStats({title: data.chapterTitle, timeStats: data.timeStats});
-                        setCurrentChapterIndex(data.chapterIndex);
-                        setBookProgress(data.percentage);
-                        db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
-                    },
-                    onSelected: (data) => {
-                        setSelectionInfo(data);
-                    }
-                });
-            };
-            reinitBook();
-
-        } else {
-            // 2. Se è cambiato solo il Font/Colore, usiamo il debounce veloce
-            const timer = setTimeout(() => {
-                epubService.applySettings(settings);
-            }, 250);
-
-            return () => clearTimeout(timer);
-        }
-    }, [settings]);
+    }, [bookId, t, settings]);
 
     useEffect(() => {
 
         const handleKeyDown = (event) => {
-            if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
             if (event.key === 'ArrowLeft') epubService.prev();
             if (event.key === 'ArrowRight') epubService.next();
         };
@@ -247,8 +187,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                         position: 'absolute',
                         top: 0,
                         bottom: 0,
-                        left: {xs: 8, sm: 16},
-                        right: {xs: 8, sm: 16},
+                        left: {xs: 8, sm: 1},
+                        right: {xs: 8, sm: 1},
 
                         '& .epub-view': {
                             width: settings.readingMode === 2 ? '99% !important' : '100%',

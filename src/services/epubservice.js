@@ -24,6 +24,7 @@ export const processEpubFile = async (file) => {
                             fr.readAsDataURL(blob);
                         });
                     } catch (e) {
+                        console.error("error load cover", e);
                     }
                 }
 
@@ -153,11 +154,24 @@ class EpubService {
 
 
         this.rendition.on('relocated', (data) => {
-
             this.handleRelocated(data, onRelocated)
         });
 
+        this.rendition.on('keyup', (event) => {
+            const key = event.key || event.code;
+            if (key === 'ArrowLeft') this.prev();
+            if (key === 'ArrowRight') this.next();
+        });
+
+        // MODIFICA QUI: Gestione del click per ignorare i link
         this.rendition.on('click', (e) => {
+            // 1. Controlla se abbiamo cliccato su un link (<a>)
+            const target = e.target;
+            const isLink = target.tagName.toLowerCase() === 'a' || target.closest('a');
+
+            // Se è un link, interrompiamo qui. Lasciamo che se ne occupi 'linkClicked'
+            if (isLink) return;
+
             const contents = this.rendition.manager.getContents()[0];
             if (!contents) return;
             const selection = contents.window.getSelection().toString();
@@ -168,7 +182,18 @@ class EpubService {
             if (x < width * 0.25) this.prev();
             else if (x > width * 0.75) this.next();
             if (onSelected) onSelected(null);
+        });
 
+        // NUOVO BLOCCO: Gestione sicura dei link interni (note)
+        this.rendition.on('linkClicked', (href) => {
+            // Ignora i link esterni (siti web)
+            if (href.startsWith('http://') || href.startsWith('https://')) {
+                window.open(href, '_blank');
+                return;
+            }
+
+            // Usa epub.js per renderizzare il link. Questo evita i bug di impaginazione.
+            this.rendition.display(href);
         });
 
 
@@ -192,16 +217,7 @@ class EpubService {
             }
         });
 
-        const targetCfi = bookData.currentCfi;
         await this.rendition.display(bookData.currentCfi || undefined);
-
-        // if (targetCfi) {
-        //     setTimeout(() => {
-        //         if (this.rendition) {
-        //             this.rendition.display(targetCfi);
-        //         }
-        //     }, 100);
-        // }
 
         if (onReady) onReady();
 
