@@ -96,7 +96,8 @@ class EpubService {
         this.currentSettings = null;
     }
 
-    async init({bookData, elementId, settings, onReady, onRelocated, onSelected}) {        // 1. Distruzione totale
+    async init({bookData, elementId, settings, onReady, onRelocated, onSelected}) {
+        // 1. Distruzione totale
         if (this.rendition) {
             this.rendition.destroy();
             this.rendition = null;
@@ -109,7 +110,6 @@ class EpubService {
         const container = typeof elementId === 'string'
             ? document.getElementById(elementId)
             : elementId;
-
 
         this.bookData = bookData;
         this.currentSettings = settings;
@@ -143,7 +143,6 @@ class EpubService {
             this.book.locations.load(bookData.locations);
         }
 
-
         this.applySettings(settings);
 
         this.rendition.themes.default({
@@ -151,7 +150,6 @@ class EpubService {
                 "transition": "transform 0.3s ease-in-out",
             }
         });
-
 
         this.rendition.on('relocated', (data) => {
             this.handleRelocated(data, onRelocated)
@@ -163,7 +161,6 @@ class EpubService {
             if (key === 'ArrowRight') this.next();
         });
 
-        // MODIFICA QUI: Gestione del click per ignorare i link
         this.rendition.on('click', (e) => {
             // 1. Controlla se abbiamo cliccato su un link (<a>)
             const target = e.target;
@@ -184,7 +181,6 @@ class EpubService {
             if (onSelected) onSelected(null);
         });
 
-        // NUOVO BLOCCO: Gestione sicura dei link interni (note)
         this.rendition.on('linkClicked', (href) => {
             // Ignora i link esterni (siti web)
             if (href.startsWith('http://') || href.startsWith('https://')) {
@@ -196,23 +192,36 @@ class EpubService {
             this.rendition.display(href);
         });
 
-
         this.rendition.on("contextmenu", (e) => {
             e.preventDefault();
         });
 
+        // NUOVA GESTIONE DELLA SELEZIONE: Il trucco "Clear & Fake"
         this.rendition.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
+
+            // Controllo di sicurezza
+            if (selection.rangeCount === 0) return;
+
             const range = selection.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             const text = selection.toString();
 
             if (text && text.trim().length > 0 && onSelected) {
-                // Passiamo il testo e le coordinate al componente React
+                // 1. Evidenzia il testo usando il motore interno di Epub.js
+                this.rendition.annotations.highlight(cfiRange, {}, (e) => {
+                    // Callback opzionale al click sull'evidenziazione
+                });
+
+                // 2. UCCIDI LA SELEZIONE NATIVA
+                // Rimuovendo la selezione di sistema, Android/iOS non apriranno i loro menu.
+                selection.removeAllRanges();
+
+                // 3. Passa i dati al componente React
                 onSelected({
                     text: text,
                     cfiRange: cfiRange,
-                    rect: rect // Contiene top, left, width, height
+                    rect: rect
                 });
             }
         });
@@ -220,11 +229,9 @@ class EpubService {
         await this.rendition.display(bookData.currentCfi || undefined);
 
         if (onReady) onReady();
-
     }
 
     handleRelocated(locationData, callback) {
-
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
@@ -330,11 +337,7 @@ class EpubService {
                     line-height: 1.6 !important;
                     margin: 0 !important;
                     
-                    /* BLOCCA SELEZIONE E COPIA DI SISTEMA */
-                    -webkit-user-select: none !important;
-                    -moz-user-select: none !important;
-                    -ms-user-select: none !important;
-                    user-select: none !important;
+                    /* I user-select: none sono stati rimossi per permettere la selezione */
             
                     /* Rimuove il flash blu al tocco */
                     -webkit-tap-highlight-color: transparent;
@@ -434,6 +437,16 @@ class EpubService {
 
     getChapterMarks() {
         return this.bookData?.toc?.filter(c => c.percent > 0).map(c => ({value: Number((c.percent * 100).toFixed(1))})) || [];
+    }
+
+    /**
+     * Rimuove l'evidenziazione visiva creata in fase di selezione.
+     * Richiamalo dal componente React quando il popup custom viene chiuso.
+     */
+    clearSelection(cfiRange) {
+        if (this.rendition && cfiRange) {
+            this.rendition.annotations.remove(cfiRange, "highlight");
+        }
     }
 
     destroy() {
