@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, LinearProgress, IconButton, CardActionArea } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import {t} from "i18next";
 
 export const BookCard = ({ book, onOpen, onMenuOpen, themeStyles }) => (
     <Box sx={{

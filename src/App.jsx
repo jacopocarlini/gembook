@@ -11,9 +11,14 @@ const resources = {
             "app_name": "GemBook",
             "search_placeholder": "Cerca libri...",
             "add_book": "Aggiungi Libro",
+
             "tab_all": "Tutti",
             "tab_to_read": "Da Leggere",
             "tab_finished": "Finiti",
+            "tab_my_books": "I miei libri",
+            "tab_online": "Libri online",
+
+
             "empty_library_title": "La tua libreria è vuota",
             "empty_library_desc": "Tocca il pulsante 'Aggiungi Libro' in alto per importare il tuo primo file .epub.",
             "empty_search_title": "Nessun libro trovato",
@@ -56,9 +61,13 @@ const resources = {
             "app_name": "GemBook",
             "search_placeholder": "Search books...",
             "add_book": "Add Book",
+
             "tab_all": "All Books",
             "tab_to_read": "To Read",
             "tab_finished": "Finished",
+            "tab_my_books": "My Books",
+            "tab_online": "Online Books",
+
             "empty_library_title": "Your library is empty",
             "empty_library_desc": "Tap the 'Add Book' button above to import your first .epub file.",
             "empty_search_title": "No books found",
