@@ -11,7 +11,7 @@ import { db } from '../services/db';
 import { processEpubFile } from '../services/epubService';
 import { BookCard } from './BookCard';
 import { SettingsDrawer } from './Settings';
-import { useTranslation } from 'react-i18next'; // <-- Import per le traduzioni
+import { useTranslation } from 'react-i18next';
 
 export default function Home({ onOpenBook, settings, setSettings, themeStyles }) {
     const { t } = useTranslation(); // <-- Inizializzazione hook traduzioni
@@ -49,6 +49,7 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
             const id = await db.books.add(processedBook);
             setBooks(prev => [...prev, { ...processedBook, id }]);
         } catch (error) {
+            console.error(error);
             alert(t('import_error')); // <-- Alert tradotto
         } finally {
             setIsImporting(false);

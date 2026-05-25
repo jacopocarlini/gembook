@@ -5,14 +5,13 @@ import {epubService} from '../services/EpubService';
 import {
     AppBar,
     Box,
-    Button,
     Drawer,
+    GlobalStyles,
     IconButton,
     List,
     ListItem,
     ListItemButton,
     ListItemText,
-    Paper,
     Slider,
     Toolbar,
     Typography
@@ -24,7 +23,6 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import CloseIcon from '@mui/icons-material/Close';
 import {SettingsDrawer} from './Settings';
-import { GlobalStyles } from '@mui/material';
 
 export default function Reader({bookId, onClose, settings, setSettings, themeStyles}) {
     const {t} = useTranslation();
@@ -32,7 +30,11 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
     // Stati UI e Info Libro
     const [bookTitle, setBookTitle] = useState(t('loading'));
-    const [time, setTime] = useState(new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}));
+    const [time, setTime] = useState(new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }));
 
     // Stati Navigazione e Progresso
     const [bookProgress, setBookProgress] = useState(0);
@@ -151,7 +153,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     border: `3px solid ${themeStyles.bg}`,
                     opacity: 0.5,
                 }
-            }} />
+            }}/>
 
             {/* HEADER */}
             <AppBar position="static" elevation={0} sx={{
@@ -199,8 +201,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             </Box>
 
             {/* FOOTER */}
-            <Box sx={{ p: 2, bgcolor: themeStyles.card, borderTop: `1px solid ${themeStyles.border}` }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', maxWidth: 1200, mx: 'auto', gap: 2 }}>
+            <Box sx={{p: 2, bgcolor: themeStyles.card, borderTop: `1px solid ${themeStyles.border}`}}>
+                <Box sx={{display: 'flex', alignItems: 'center', width: '100%', maxWidth: 1200, mx: 'auto', gap: 2}}>
 
                     <IconButton onClick={() => epubService.prev()} sx={{
                         color: themeStyles.text,
@@ -237,8 +239,12 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                         </Box>
                     </Box>
 
-                    <IconButton onClick={() => epubService.next()} sx={{ color: themeStyles.text, border: `1px solid ${themeStyles.border}`, borderRadius: '12px' }}>
-                        <NavigateNextIcon />
+                    <IconButton onClick={() => epubService.next()} sx={{
+                        color: themeStyles.text,
+                        border: `1px solid ${themeStyles.border}`,
+                        borderRadius: '12px'
+                    }}>
+                        <NavigateNextIcon/>
                     </IconButton>
                 </Box>
             </Box>
