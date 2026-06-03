@@ -4,7 +4,8 @@ import {db} from '../services/db';
 import {epubService} from '../services/EpubService';
 import {
     AppBar,
-    Box, Button, Dialog, DialogActions, DialogTitle,
+    Box,
+    Button,
     Drawer,
     GlobalStyles,
     IconButton,
@@ -64,10 +65,10 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [drawerTab, setDrawerTab] = useState(0);
 
-    // Stati Selezioni e Sottolineature
-    const [selectionInfo, setSelectionInfo] = useState(null);
+    // Stato Unificato per Selezioni e Sottolineature
+    // Formato: null | { type: 'selection', data: info } | { type: 'highlight', data: { cfiRange } }
+    const [activePopup, setActivePopup] = useState(null);
     const [highlights, setHighlights] = useState([]);
-    const [highlightToRemove, setHighlightToRemove] = useState(null);
 
     // Aggiornamento Orologio
     useEffect(() => {
@@ -92,24 +93,22 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             const savedHighlights = bookData.highlights || [];
             setHighlights(savedHighlights);
 
-
             await epubService.init({
                 bookData,
                 elementId: viewerRef.current,
                 settings: settings,
                 onSelected: (info) => {
                     if (!isMounted) return;
-                    setSelectionInfo(info);
+                    setActivePopup({type: 'selection', data: info});
                 },
                 onHighlightClick: (clickedCfiRange) => {
                     if (!isMounted) return;
-                    handleHighlightClick(clickedCfiRange);
+                    setActivePopup({type: 'highlight', data: {cfiRange: clickedCfiRange}});
                 },
                 onReady: () => {
                     if (!isMounted) return;
                     setChaptersMarks(epubService.getChapterMarks());
 
-                    // DISEGNA LE SOTTOLINEATURE SALVATE QUANDO IL LIBRO È PRONTO
                     savedHighlights.forEach(h => {
                         epubService.addHighlight(h.cfiRange, h.color);
                     });
@@ -134,7 +133,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         };
     }, [bookId, t, settings]);
 
-// Controlla se la pagina corrente ha dei segnalibri visibili
+    // Controlla se la pagina corrente ha dei segnalibri visibili
     useEffect(() => {
         if (!currentLocation || bookmarks.length === 0 || !epubService.rendition) {
             setIsBookmarked(false);
@@ -143,7 +142,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
         const visibleLocation = epubService.rendition.location;
 
-        // Se per qualche motivo epubjs non ha ancora i dati visibili, usiamo un fallback sicuro
         if (!visibleLocation || !visibleLocation.start || !visibleLocation.end) {
             setIsBookmarked(bookmarks.some(b => b.cfi === currentLocation.cfi));
             return;
@@ -153,7 +151,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
         const isHere = bookmarks.some(b => {
             try {
-                // Controlla se il bookmark si trova TRA l'inizio e la fine della pagina visibile
                 const isAfterStart = cfiHelper.compare(b.cfi, visibleLocation.start.cfi) >= 0;
                 const isBeforeEnd = cfiHelper.compare(b.cfi, visibleLocation.end.cfi) <= 0;
                 return isAfterStart && isBeforeEnd;
@@ -175,12 +172,9 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    // Nuovo gestore per la chiusura sicura del libro
     const handleClose = async () => {
-        // Forza un ultimo salvataggio di sicurezza della posizione attuale
         if (currentLocation) {
             try {
-
                 await db.books.update(bookId, {
                     currentCfi: currentLocation.cfi,
                     progress: currentLocation.percentage
@@ -189,16 +183,12 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 console.error("Errore durante il salvataggio finale:", error);
             }
         }
-        // Torna alla Home
         onClose();
     };
 
-    // Aggiungi / Rimuovi Bookmark dalla Header (Con UI Ottimistica)
-// Aggiungi / Rimuovi Bookmark dalla Header
     const handleToggleBookmark = async () => {
         if (!currentLocation || !epubService.rendition) return;
 
-        // Salviamo lo stato attuale per l'aggiornamento ottimistico
         const wasBookmarked = isBookmarked;
         setIsBookmarked(!wasBookmarked);
 
@@ -208,7 +198,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             let newBookmarks;
 
             if (wasBookmarked) {
-                // RIMOZIONE: Eliminiamo TUTTI i segnalibri visibili in questa schermata
                 const visibleLocation = epubService.rendition.location;
                 const cfiHelper = new ePub.CFI();
 
@@ -218,8 +207,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                             const isAfterStart = cfiHelper.compare(b.cfi, visibleLocation.start.cfi) >= 0;
                             const isBeforeEnd = cfiHelper.compare(b.cfi, visibleLocation.end.cfi) <= 0;
                             const isVisible = isAfterStart && isBeforeEnd;
-
-                            // Se è visibile lo scartiamo (ritorniamo false), altrimenti lo teniamo
                             return !isVisible;
                         } catch (e) {
                             return b.cfi !== currentLocation.cfi;
@@ -228,7 +215,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     return b.cfi !== currentLocation.cfi;
                 });
             } else {
-                // AGGIUNTA: Creiamo un solo nuovo segnalibro all'inizio della pagina visibile
                 const newBookmark = {
                     cfi: currentLocation.cfi,
                     chapterTitle: currentLocation.chapterTitle || bookTitle,
@@ -245,11 +231,10 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
         } catch (error) {
             console.error("Errore durante il salvataggio del bookmark:", error);
-            // In caso di errore ripristiniamo l'icona
             setIsBookmarked(wasBookmarked);
         }
     };
-    // Elimina un bookmark dalla lista del Drawer
+
     const handleDeleteBookmark = async (cfiToRemove) => {
         try {
             const bookData = await db.books.get(bookId);
@@ -263,13 +248,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         }
     };
 
-    // Vai alla pagina del bookmark
     const handleGoToBookmark = (cfi) => {
-        if (epubService.display) {
-            epubService.display(cfi);
-        } else if (epubService.rendition) {
-            epubService.rendition.display(cfi);
-        }
+        epubService.goToChapterByCfi(cfi);
         setIsTocOpen(false);
     };
 
@@ -289,9 +269,9 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         return `${formatMinutes(timeStats.chapterMinutes)} ${t('cap_label')} ${t('time_separator')} ${formatMinutes(timeStats.totalMinutes)} ${t('tot_label')}`;
     };
 
-    // Aggiunge una sottolineatura e la salva nel DB
     const handleAddHighlight = async (color = 'rgba(255, 235, 59, 0.5)') => {
-        if (!selectionInfo) return;
+        if (!activePopup || activePopup.type !== 'selection' || !activePopup.data) return;
+        const selectionInfo = activePopup.data;
 
         const newHighlight = {
             cfiRange: selectionInfo.cfiRange,
@@ -301,12 +281,10 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             createdAt: new Date().toISOString()
         };
 
-        // Aggiornamento Visivo Istantaneo
         epubService.addHighlight(newHighlight.cfiRange, newHighlight.color);
         epubService.clearSelection();
-        setSelectionInfo(null);
+        setActivePopup(null);
 
-        // Salvataggio nel Database
         try {
             const bookData = await db.books.get(bookId);
             const currentHighlights = bookData.highlights || [];
@@ -319,30 +297,33 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         }
     };
 
-// Chiamata quando clicchi su un'evidenziazione nel libro
-    const handleHighlightClick = (cfiRange) => {
-        setHighlightToRemove(cfiRange); // Apre il popup custom invece dell'alert
-    };
-
-    // Funzione che esegue l'eliminazione vera e propria
     const confirmDeleteHighlight = async (cfiRange) => {
         if (!cfiRange) return;
 
-        // Rimuove dal viewer epub
         epubService.removeHighlight(cfiRange);
 
-        // Rimuove dal Database
         try {
             const bookData = await db.books.get(bookId);
             const updatedHighlights = (bookData.highlights || []).filter(h => h.cfiRange !== cfiRange);
-            await db.books.update(bookId, { highlights: updatedHighlights });
+            await db.books.update(bookId, {highlights: updatedHighlights});
             setHighlights(updatedHighlights);
         } catch (error) {
             console.error("Errore rimozione sottolineatura:", error);
         }
 
-        // Chiude il popup
-        setHighlightToRemove(null);
+        setActivePopup(null);
+    };
+
+    // Ottiene il testo per il popup unificato se è una sottolineatura esistente
+    const getPopupTextContent = () => {
+        if (!activePopup || !activePopup.data) return "";
+
+        if (activePopup.type === 'selection') {
+            return activePopup.data.text || "";
+        }
+
+        const existingHighlight = highlights.find(h => h.cfiRange === activePopup.data.cfiRange);
+        return existingHighlight ? existingHighlight.text : "";
     };
 
     return (
@@ -408,8 +389,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 }}/>
             </Box>
 
-            {/* POPUP CONTESTUALE (Selezioni) */}
-            {selectionInfo && (
+            {/* POPUP UNIFICATO (Selezioni & Sottolineature Esistenti) */}
+            {activePopup && (
                 <Box
                     elevation={10}
                     sx={{
@@ -429,11 +410,11 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                         <Typography variant="subtitle2"
                                     sx={{fontWeight: 800, color: themeStyles.primary, textTransform: 'uppercase'}}>
-                            {t('text_selection')}
+                            {activePopup.type === 'selection' ? t('text_selection') : t('note')}
                         </Typography>
                         <IconButton size="small" onClick={() => {
-                            epubService.clearSelection();
-                            setSelectionInfo(null);
+                            if (activePopup.type === 'selection') epubService.clearSelection();
+                            setActivePopup(null);
                         }} sx={{color: themeStyles.text}}>
                             <CloseIcon/>
                         </IconButton>
@@ -446,53 +427,67 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                         borderRadius: '8px', borderLeft: `4px solid ${themeStyles.primary}`
                     }}>
                         <Typography variant="body2" sx={{fontStyle: 'italic', color: themeStyles.text}}>
-                            "{selectionInfo.text}"
+                            "{getPopupTextContent()}"
                         </Typography>
                     </Box>
 
-                    {/* Footer Azioni */}
+                    {/* Footer Azioni: Cambia tra Creazione e Rimozione */}
                     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 0.5}}>
 
-                        {/* Selettore Colori Evidenziazione */}
-                        <Box sx={{display: 'flex', gap: 1.5}}>
-                            {[
-                                { id: 'yellow', bg: '#FBC02D', rgba: 'rgba(255, 235, 59, 0.8)' }, // Usato un giallo carico per il tasto
-                                { id: 'green', bg: '#4CAF50', rgba: 'rgba(76, 175, 80, 0.8)' },
-                                { id: 'purple', bg: '#9C27B0', rgba: 'rgba(156, 39, 176, 0.8)' }
-                            ].map((color) => (
-                                <Box
-                                    key={color.id}
-                                    onClick={() => handleAddHighlight(color.rgba)}
-                                    sx={{
-                                        width: 34, height: 34, borderRadius: '50%',
-                                        bgcolor: color.bg,
-                                        boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-                                        cursor: 'pointer', transition: '0.2s',
-                                        border: `2px solid transparent`,
-                                        '&:hover': {
-                                            transform: 'scale(1.15)',
-                                            borderColor: themeStyles.text // Bordo a contrasto sull'hover
-                                        }
-                                    }}
-                                />
-                            ))}
-                        </Box>
+                        {activePopup.type === 'selection' ? (
+                            /* Azioni per NUOVA selezione (Colori) */
+                            <Box sx={{display: 'flex', gap: 1.5}}>
+                                {[
+                                    {id: 'yellow', bg: '#FBC02D', rgba: 'rgba(255, 235, 59, 0.8)'},
+                                    {id: 'green', bg: '#4CAF50', rgba: 'rgba(76, 175, 80, 0.8)'},
+                                    {id: 'purple', bg: '#9C27B0', rgba: 'rgba(156, 39, 176, 0.8)'}
+                                ].map((color) => (
+                                    <Box
+                                        key={color.id}
+                                        onClick={() => handleAddHighlight(color.rgba)}
+                                        sx={{
+                                            width: 34, height: 34, borderRadius: '50%',
+                                            bgcolor: color.bg,
+                                            boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                                            cursor: 'pointer', transition: '0.2s',
+                                            border: `2px solid transparent`,
+                                            '&:hover': {
+                                                transform: 'scale(1.15)',
+                                                borderColor: themeStyles.text
+                                            }
+                                        }}
+                                    />
+                                ))}
+                            </Box>
+                        ) : (
+                            /* Azioni per HIGHLIGHT ESISTENTE (Elimina) */
+                            <Button
+                                onClick={() => confirmDeleteHighlight(activePopup.data.cfiRange)}
+                                variant="contained"
+                                color="error"
+                                disableElevation
+                                startIcon={<DeleteOutlineIcon/>}
+                                sx={{textTransform: 'none', fontWeight: 600, borderRadius: '8px', py: 0.5}}
+                            >
+                                {t('delete')}
+                            </Button>
+                        )}
 
-                        {/* Pulsante Copia */}
+                        {/* Pulsante Copia (Comune a entrambi) */}
                         <IconButton
                             onClick={() => {
-                                navigator.clipboard.writeText(selectionInfo.text);
-                                epubService.clearSelection();
-                                setSelectionInfo(null);
+                                navigator.clipboard.writeText(getPopupTextContent());
+                                if (activePopup.type === 'selection') epubService.clearSelection();
+                                setActivePopup(null);
                             }}
                             sx={{
                                 color: themeStyles.text,
                                 border: `1px solid ${themeStyles.border}`,
                                 borderRadius: '10px',
-                                '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }
+                                '&:hover': {bgcolor: 'rgba(0,0,0,0.05)'}
                             }}
                         >
-                            <ContentCopyIcon fontSize="small" />
+                            <ContentCopyIcon fontSize="small"/>
                         </IconButton>
                     </Box>
                 </Box>
@@ -554,7 +549,8 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 {/* Header del Drawer */}
                 <Box sx={{p: {xs: 1.5, sm: 2}, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                     <Typography variant="h6" sx={{fontWeight: 800, px: 1}}>{t('menu')}</Typography>
-                    <IconButton onClick={() => setIsTocOpen(false)} size="small" sx={{color: themeStyles.text, opacity: 0.5}}><CloseIcon/></IconButton>
+                    <IconButton onClick={() => setIsTocOpen(false)} size="small"
+                                sx={{color: themeStyles.text, opacity: 0.5}}><CloseIcon/></IconButton>
                 </Box>
 
                 {/* Tabs di navigazione */}
@@ -574,12 +570,12 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     <Tab label={t('note')}/>
                 </Tabs>
 
-                {/* Contenuto del Drawer */}
+                {/* Contenuto del Drawer (UX Uniformata) */}
                 <Box sx={{flexGrow: 1, overflowY: 'auto'}}>
 
                     {/* TAB 0: INDICE (TOC) */}
                     {drawerTab === 0 && (
-                        <List>
+                        <List sx={{py: 0}}>
                             {toc.map((chap, i) => (
                                 <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
                                     <ListItemButton
@@ -588,13 +584,13 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                                             epubService.goToChapterByIndex(i);
                                         }}
                                         selected={currentChapterIndex === i}
-                                        sx={{pl: 2 + (chap.level || 0) * 2}}
+                                        sx={{pl: 2 + (chap.level || 0) * 2, py: 1.5}}
                                     >
                                         <ListItemText
                                             primary={chap.label}
                                             primaryTypographyProps={{
-                                                fontWeight: currentChapterIndex === i ? 700 : 400,
-                                                fontSize: chap.level > 0 ? '0.9rem' : '1rem',
+                                                fontWeight: currentChapterIndex === i ? 700 : 500,
+                                                fontSize: '0.95rem',
                                                 color: currentChapterIndex === i ? themeStyles.primary : 'inherit'
                                             }}
                                         />
@@ -606,35 +602,45 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
                     {/* TAB 1: SEGNALIBRI */}
                     {drawerTab === 1 && (
-                        <List>
+                        <List sx={{py: 0}}>
                             {bookmarks.length > 0 ? (
                                 bookmarks.map((b, i) => (
-                                    <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
-                                        <ListItemButton onClick={() => handleGoToBookmark(b.cfi)}>
+                                    <ListItem
+                                        key={i}
+                                        disablePadding
+                                        divider
+                                        sx={{borderColor: themeStyles.border}}
+                                        secondaryAction={
+                                            <IconButton
+                                                edge="end"
+                                                onClick={() => handleDeleteBookmark(b.cfi)}
+                                                sx={{
+                                                    color: themeStyles.text,
+                                                    opacity: 0.6,
+                                                    '&:hover': {opacity: 1, color: 'error.main'}
+                                                }}
+                                            >
+                                                <DeleteOutlineIcon fontSize="small"/>
+                                            </IconButton>
+                                        }
+                                    >
+                                        <ListItemButton onClick={() => handleGoToBookmark(b.cfi)} sx={{py: 1.5, pr: 6}}>
                                             <ListItemText
-                                                primary={`${t('chapter') + ": " + b.chapterTitle}`}
+                                                primary={b.chapterTitle}
                                                 secondary={`${(b.percentage || 0).toFixed(1)}%`}
                                                 primaryTypographyProps={{
                                                     fontWeight: 600,
                                                     color: themeStyles.text,
                                                     fontSize: '0.95rem'
                                                 }}
-                                                secondaryTypographyProps={{color: themeStyles.primary, fontWeight: 700}}
+                                                secondaryTypographyProps={{
+                                                    color: themeStyles.primary,
+                                                    fontWeight: 700,
+                                                    fontSize: '0.85rem',
+                                                    mt: 0.5
+                                                }}
                                             />
                                         </ListItemButton>
-
-                                        <IconButton
-                                            edge="end"
-                                            onClick={() => handleDeleteBookmark(b.cfi)}
-                                            sx={{
-                                                color: themeStyles.text,
-                                                opacity: 0.6,
-                                                mr: 1,
-                                                '&:hover': {opacity: 1, color: 'error.main'}
-                                            }}
-                                        >
-                                            <DeleteOutlineIcon fontSize="small"/>
-                                        </IconButton>
                                     </ListItem>
                                 ))
                             ) : (
@@ -648,32 +654,58 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
                     {/* TAB 2: SOTTOLINEATURE */}
                     {drawerTab === 2 && (
-                        <List>
+                        <List sx={{py: 0}}>
                             {highlights.length > 0 ? (
                                 highlights.map((h, i) => (
-                                    <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
-                                        <ListItemButton onClick={() => handleGoToBookmark(h.cfiRange)} sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 2 }}>
-                                            <Typography variant="caption" sx={{ color: themeStyles.primary, fontWeight: 800, mb: 0.5 }}>
-                                                {h.chapterTitle}
-                                            </Typography>
-                                            <Typography variant="body2" sx={{ fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                                "{h.text}"
-                                            </Typography>
+                                    <ListItem
+                                        key={i}
+                                        disablePadding
+                                        divider
+                                        sx={{borderColor: themeStyles.border}}
+                                        secondaryAction={
+                                            <IconButton
+                                                edge="end"
+                                                onClick={() => confirmDeleteHighlight(h.cfiRange)}
+                                                sx={{
+                                                    color: themeStyles.text,
+                                                    opacity: 0.6,
+                                                    '&:hover': {opacity: 1, color: 'error.main'}
+                                                }}
+                                            >
+                                                <DeleteOutlineIcon fontSize="small"/>
+                                            </IconButton>
+                                        }
+                                    >
+                                        <ListItemButton onClick={() => handleGoToBookmark(h.cfiRange)}
+                                                        sx={{py: 1.5, pr: 6}}>
+                                            <ListItemText
+                                                primary={h.chapterTitle}
+                                                secondary={`"${h.text}"`}
+                                                primaryTypographyProps={{
+                                                    fontWeight: 600,
+                                                    color: themeStyles.text,
+                                                    fontSize: '0.95rem'
+                                                }}
+                                                secondaryTypographyProps={{
+                                                    // Racchiudiamo tutti gli stili personalizzati nell'oggetto sx
+                                                    sx: {
+                                                        color: themeStyles.text,
+                                                        fontSize: '0.85rem',
+                                                        fontStyle: 'italic',
+                                                        opacity: 0.8,
+                                                        mt: 0.5,
+                                                        display: '-webkit-box',
+                                                        WebkitLineClamp: 2,
+                                                        WebkitBoxOrient: 'vertical',
+                                                        overflow: 'hidden'
+                                                    }
+                                                }}
+                                            />
                                         </ListItemButton>
-
-                                        {/* <-- NUOVA ICONA ELIMINA PER LE SOTTOLINEATURE */}
-                                        <IconButton
-                                            edge="end"
-                                            onClick={() => confirmDeleteHighlight(h.cfiRange)}
-                                            sx={{ color: themeStyles.text, opacity: 0.6, mr: 1, '&:hover': { opacity: 1, color: 'error.main' } }}
-                                        >
-                                            <DeleteOutlineIcon fontSize="small" />
-                                        </IconButton>
-
                                     </ListItem>
                                 ))
                             ) : (
-                                <Box sx={{ p: 4, textAlign: 'center', opacity: 0.5 }}>
+                                <Box sx={{p: 4, textAlign: 'center', opacity: 0.5}}>
                                     <Typography variant="body2">{t('no_notes')}</Typography>
                                 </Box>
                             )}
@@ -681,43 +713,6 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     )}
                 </Box>
             </Drawer>
-
-
-            {/* POPUP CUSTOM ELIMINA SOTTOLINEATURA */}
-            <Dialog
-                open={!!highlightToRemove}
-                onClose={() => setHighlightToRemove(null)}
-                PaperProps={{
-                    sx: {
-                        bgcolor: themeStyles.card,
-                        color: themeStyles.text,
-                        borderRadius: '16px',
-                        border: `1px solid ${themeStyles.border}`
-                    }
-                }}
-            >
-                {/* Aggiunto color: themeStyles.text qui sotto 👇 */}
-                <DialogTitle sx={{ fontSize: '1.1rem', fontWeight: 600, color: themeStyles.text }}>
-                    {t('delete_highlight_confirm')}
-                </DialogTitle>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button
-                        onClick={() => setHighlightToRemove(null)}
-                        sx={{ color: themeStyles.text, textTransform: 'none', fontWeight: 600 }}
-                    >
-                        {t('cancel')}
-                    </Button>
-                    <Button
-                        onClick={() => confirmDeleteHighlight(highlightToRemove)}
-                        variant="contained"
-                        color="error"
-                        disableElevation
-                        sx={{ textTransform: 'none', fontWeight: 600, borderRadius: '8px' }}
-                    >
-                        {t('delete')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
 
             <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings}
                             setSettings={setSettings} themeStyles={themeStyles}/>

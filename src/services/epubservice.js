@@ -451,6 +451,34 @@ class EpubService {
         if (this.bookData?.toc?.[index]) this.rendition.display(this.bookData.toc[index].href);
     }
 
+    goToChapterByCfi(cfi) {
+        if (!cfi) return;
+
+        let targetCfi = cfi;
+
+        // 1. Pulisce eventuali Range CFI (se ci sono virgole) per ricavare il punto esatto di inizio
+        if (cfi.includes(',')) {
+            const match = cfi.match(/epubcfi\((.*)\)/);
+            if (match && match[1]) {
+                const parts = match[1].split(',');
+                if (parts.length === 3) {
+                    targetCfi = `epubcfi(${parts[0]}${parts[1]})`;
+                }
+            }
+        }
+
+        // 2. Navigazione con workaround per il bug di paginazione di epub.js
+        if (this.rendition) {
+            this.rendition.display(targetCfi).then(() => {
+                // A questo punto il capitolo è nel DOM.
+                // Forziamo un ricalcolo invisibile per centrare esattamente il nodo profondo.
+                this.rendition.display(targetCfi);
+            }).catch(err => {
+                console.error("Errore durante la navigazione CFI:", err);
+            });
+        }
+    }
+
     getChapterMarks() {
         return this.bookData?.toc?.filter(c => c.percent > 0).map(c => ({value: Number((c.percent * 100).toFixed(1))})) || [];
     }
