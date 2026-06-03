@@ -4,7 +4,7 @@ import {db} from '../services/db';
 import {epubService} from '../services/EpubService';
 import {
     AppBar,
-    Box,
+    Box, Button, Dialog, DialogActions, DialogTitle,
     Drawer,
     GlobalStyles,
     IconButton,
@@ -13,10 +13,10 @@ import {
     ListItemButton,
     ListItemText,
     Slider,
-    Toolbar,
-    Typography,
+    Tab,
     Tabs,
-    Tab
+    Toolbar,
+    Typography
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -27,6 +27,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 import {SettingsDrawer} from './Settings';
 import ePub from 'epubjs';
@@ -63,6 +64,11 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [drawerTab, setDrawerTab] = useState(0);
 
+    // Stati Selezioni e Sottolineature
+    const [selectionInfo, setSelectionInfo] = useState(null);
+    const [highlights, setHighlights] = useState([]);
+    const [highlightToRemove, setHighlightToRemove] = useState(null);
+
     // Aggiornamento Orologio
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date().toLocaleTimeString([], {
@@ -83,13 +89,30 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             setToc(bookData.toc || []);
             setBookmarks(bookData.bookmarks || []);
 
+            const savedHighlights = bookData.highlights || [];
+            setHighlights(savedHighlights);
+
+
             await epubService.init({
                 bookData,
                 elementId: viewerRef.current,
                 settings: settings,
+                onSelected: (info) => {
+                    if (!isMounted) return;
+                    setSelectionInfo(info);
+                },
+                onHighlightClick: (clickedCfiRange) => {
+                    if (!isMounted) return;
+                    handleHighlightClick(clickedCfiRange);
+                },
                 onReady: () => {
                     if (!isMounted) return;
                     setChaptersMarks(epubService.getChapterMarks());
+
+                    // DISEGNA LE SOTTOLINEATURE SALVATE QUANDO IL LIBRO È PRONTO
+                    savedHighlights.forEach(h => {
+                        epubService.addHighlight(h.cfiRange, h.color);
+                    });
                 },
                 onRelocated: (data) => {
                     if (!isMounted) return;
@@ -199,7 +222,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 newBookmarks = [...existingBookmarks, newBookmark];
             }
 
-            await db.books.update(bookId, { bookmarks: newBookmarks });
+            await db.books.update(bookId, {bookmarks: newBookmarks});
             setBookmarks(newBookmarks);
 
         } catch (error) {
@@ -215,7 +238,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
             const existingBookmarks = bookData.bookmarks || [];
             const newBookmarks = existingBookmarks.filter(b => b.cfi !== cfiToRemove);
 
-            await db.books.update(bookId, { bookmarks: newBookmarks });
+            await db.books.update(bookId, {bookmarks: newBookmarks});
             setBookmarks(newBookmarks);
         } catch (error) {
             console.error("Errore durante l'eliminazione del bookmark:", error);
@@ -248,30 +271,108 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         return `${formatMinutes(timeStats.chapterMinutes)} ${t('cap_label')} ${t('time_separator')} ${formatMinutes(timeStats.totalMinutes)} ${t('tot_label')}`;
     };
 
+    // Aggiunge una sottolineatura e la salva nel DB
+    const handleAddHighlight = async (color = 'rgba(255, 235, 59, 0.5)') => {
+        if (!selectionInfo) return;
+
+        const newHighlight = {
+            cfiRange: selectionInfo.cfiRange,
+            text: selectionInfo.text,
+            color: color,
+            chapterTitle: chapterStats.title || bookTitle,
+            createdAt: new Date().toISOString()
+        };
+
+        // Aggiornamento Visivo Istantaneo
+        epubService.addHighlight(newHighlight.cfiRange, newHighlight.color);
+        epubService.clearSelection();
+        setSelectionInfo(null);
+
+        // Salvataggio nel Database
+        try {
+            const bookData = await db.books.get(bookId);
+            const currentHighlights = bookData.highlights || [];
+            const updatedHighlights = [...currentHighlights, newHighlight];
+
+            await db.books.update(bookId, {highlights: updatedHighlights});
+            setHighlights(updatedHighlights);
+        } catch (error) {
+            console.error("Errore salvataggio sottolineatura:", error);
+        }
+    };
+
+// Chiamata quando clicchi su un'evidenziazione nel libro
+    const handleHighlightClick = (cfiRange) => {
+        setHighlightToRemove(cfiRange); // Apre il popup custom invece dell'alert
+    };
+
+    // Funzione che esegue l'eliminazione vera e propria
+    const confirmDeleteHighlight = async (cfiRange) => {
+        if (!cfiRange) return;
+
+        // Rimuove dal viewer epub
+        epubService.removeHighlight(cfiRange);
+
+        // Rimuove dal Database
+        try {
+            const bookData = await db.books.get(bookId);
+            const updatedHighlights = (bookData.highlights || []).filter(h => h.cfiRange !== cfiRange);
+            await db.books.update(bookId, { highlights: updatedHighlights });
+            setHighlights(updatedHighlights);
+        } catch (error) {
+            console.error("Errore rimozione sottolineatura:", error);
+        }
+
+        // Chiude il popup
+        setHighlightToRemove(null);
+    };
+
     return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: themeStyles.bg, color: themeStyles.text, overflow: 'hidden' }}>
+        <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100vh',
+            bgcolor: themeStyles.bg,
+            color: themeStyles.text,
+            overflow: 'hidden'
+        }}>
 
             <GlobalStyles styles={{
-                '*': { scrollbarWidth: 'thin', scrollbarColor: `${themeStyles.text} ${themeStyles.bg}` },
-                '*::-webkit-scrollbar': { width: '10px', height: '10px' },
-                '*::-webkit-scrollbar-track': { background: themeStyles.bg },
-                '*::-webkit-scrollbar-thumb': { backgroundColor: themeStyles.text, borderRadius: '10px', border: `3px solid ${themeStyles.bg}`, opacity: 0.5 }
+                '*': {scrollbarWidth: 'thin', scrollbarColor: `${themeStyles.text} ${themeStyles.bg}`},
+                '*::-webkit-scrollbar': {width: '10px', height: '10px'},
+                '*::-webkit-scrollbar-track': {background: themeStyles.bg},
+                '*::-webkit-scrollbar-thumb': {
+                    backgroundColor: themeStyles.text,
+                    borderRadius: '10px',
+                    border: `3px solid ${themeStyles.bg}`,
+                    opacity: 0.5
+                }
             }}/>
 
             {/* HEADER */}
-            <AppBar position="static" elevation={0} sx={{ bgcolor: themeStyles.card, color: themeStyles.text, borderBottom: `1px solid ${themeStyles.border}`, backgroundImage: 'none' }}>
+            <AppBar position="static" elevation={0} sx={{
+                bgcolor: themeStyles.card,
+                color: themeStyles.text,
+                borderBottom: `1px solid ${themeStyles.border}`,
+                backgroundImage: 'none'
+            }}>
                 <Toolbar sx={{gap: 0.5}}>
                     <IconButton edge="start" color="inherit" onClick={onClose}><ArrowBackIcon/></IconButton>
-                    <IconButton color="inherit" onClick={() => setIsTocOpen(true)}><FormatListBulletedIcon/></IconButton>
+                    <IconButton color="inherit"
+                                onClick={() => setIsTocOpen(true)}><FormatListBulletedIcon/></IconButton>
 
                     <Box sx={{flexGrow: 1, textAlign: 'center', px: 1, minWidth: 0}}>
-                        <Typography variant="body1" noWrap sx={{fontWeight: 700, fontSize: '0.95rem'}}>{bookTitle}</Typography>
-                        <Typography variant="caption" noWrap sx={{display: 'block', opacity: 0.7}}>{chapterStats.title}</Typography>
+                        <Typography variant="body1" noWrap
+                                    sx={{fontWeight: 700, fontSize: '0.95rem'}}>{bookTitle}</Typography>
+                        <Typography variant="caption" noWrap
+                                    sx={{display: 'block', opacity: 0.7}}>{chapterStats.title}</Typography>
                     </Box>
 
-                    <Typography variant="body2" sx={{fontWeight: 600, display: {xs: 'none', sm: 'block'}, mx: 1}}>{time}</Typography>
-                    <IconButton color="inherit" onClick={handleToggleBookmark} sx={{ color: isBookmarked ? themeStyles.primary : 'inherit' }}>
-                        {isBookmarked ? <BookmarkIcon /> : <BookmarkBorderIcon />}
+                    <Typography variant="body2"
+                                sx={{fontWeight: 600, display: {xs: 'none', sm: 'block'}, mx: 1}}>{time}</Typography>
+                    <IconButton color="inherit" onClick={handleToggleBookmark}
+                                sx={{color: isBookmarked ? themeStyles.primary : 'inherit'}}>
+                        {isBookmarked ? <BookmarkIcon/> : <BookmarkBorderIcon/>}
                     </IconButton>
                     <IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon/></IconButton>
                 </Toolbar>
@@ -279,13 +380,114 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
             {/* AREA LETTURA */}
             <Box sx={{flexGrow: 1, position: 'relative', overflow: 'hidden', px: {xs: 1, sm: 2}}}>
-                <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, bottom: 0, left: {xs: 8, sm: 1}, right: {xs: 8, sm: 1}, '& .epub-view': { width: settings.readingMode === 2 ? '99% !important' : '100%' } }} />
+                <Box ref={viewerRef} sx={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: {xs: 8, sm: 1},
+                    right: {xs: 8, sm: 1},
+                    '& .epub-view': {width: settings.readingMode === 2 ? '99% !important' : '100%'}
+                }}/>
             </Box>
+
+            {/* POPUP CONTESTUALE (Selezioni) */}
+            {selectionInfo && (
+                <Box
+                    elevation={10}
+                    sx={{
+                        position: 'fixed',
+                        top: '50%', left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        zIndex: 9999, p: 2,
+                        width: {xs: '85vw', sm: 400},
+                        bgcolor: themeStyles.card,
+                        color: themeStyles.text,
+                        borderRadius: '16px',
+                        boxShadow: '0px 8px 32px rgba(0,0,0,0.4)',
+                        display: 'flex', flexDirection: 'column', gap: 2
+                    }}
+                >
+                    {/* Intestazione */}
+                    <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                        <Typography variant="subtitle2"
+                                    sx={{fontWeight: 800, color: themeStyles.primary, textTransform: 'uppercase'}}>
+                            {t('text_selection')}
+                        </Typography>
+                        <IconButton size="small" onClick={() => {
+                            epubService.clearSelection();
+                            setSelectionInfo(null);
+                        }} sx={{color: themeStyles.text}}>
+                            <CloseIcon/>
+                        </IconButton>
+                    </Box>
+
+                    {/* Box Testo */}
+                    <Box sx={{
+                        maxHeight: '120px', overflowY: 'auto',
+                        bgcolor: 'rgba(0,0,0,0.05)', p: 1.5,
+                        borderRadius: '8px', borderLeft: `4px solid ${themeStyles.primary}`
+                    }}>
+                        <Typography variant="body2" sx={{fontStyle: 'italic', color: themeStyles.text}}>
+                            "{selectionInfo.text}"
+                        </Typography>
+                    </Box>
+
+                    {/* Footer Azioni */}
+                    <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 0.5}}>
+
+                        {/* Selettore Colori Evidenziazione */}
+                        <Box sx={{display: 'flex', gap: 1.5}}>
+                            {[
+                                { id: 'yellow', bg: '#FBC02D', rgba: 'rgba(255, 235, 59, 0.8)' }, // Usato un giallo carico per il tasto
+                                { id: 'green', bg: '#4CAF50', rgba: 'rgba(76, 175, 80, 0.8)' },
+                                { id: 'purple', bg: '#9C27B0', rgba: 'rgba(156, 39, 176, 0.8)' }
+                            ].map((color) => (
+                                <Box
+                                    key={color.id}
+                                    onClick={() => handleAddHighlight(color.rgba)}
+                                    sx={{
+                                        width: 34, height: 34, borderRadius: '50%',
+                                        bgcolor: color.bg,
+                                        boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                                        cursor: 'pointer', transition: '0.2s',
+                                        border: `2px solid transparent`,
+                                        '&:hover': {
+                                            transform: 'scale(1.15)',
+                                            borderColor: themeStyles.text // Bordo a contrasto sull'hover
+                                        }
+                                    }}
+                                />
+                            ))}
+                        </Box>
+
+                        {/* Pulsante Copia */}
+                        <IconButton
+                            onClick={() => {
+                                navigator.clipboard.writeText(selectionInfo.text);
+                                epubService.clearSelection();
+                                setSelectionInfo(null);
+                            }}
+                            sx={{
+                                color: themeStyles.text,
+                                border: `1px solid ${themeStyles.border}`,
+                                borderRadius: '10px',
+                                '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }
+                            }}
+                        >
+                            <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                    </Box>
+                </Box>
+            )}
 
             {/* FOOTER */}
             <Box sx={{p: 2, bgcolor: themeStyles.card, borderTop: `1px solid ${themeStyles.border}`}}>
                 <Box sx={{display: 'flex', alignItems: 'center', width: '100%', maxWidth: 1200, mx: 'auto', gap: 2}}>
-                    <IconButton onClick={() => epubService.prev()} sx={{ color: themeStyles.text, border: `1px solid ${themeStyles.border}`, borderRadius: '12px' }}><NavigateBeforeIcon/></IconButton>
+                    <IconButton onClick={() => epubService.prev()} sx={{
+                        color: themeStyles.text,
+                        border: `1px solid ${themeStyles.border}`,
+                        borderRadius: '12px'
+                    }}><NavigateBeforeIcon/></IconButton>
 
                     <Box sx={{flex: 1, display: 'flex', flexDirection: 'column', gap: 0.5}}>
                         <Slider
@@ -302,12 +504,17 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                             }}
                         />
                         <Box sx={{display: 'flex', justifyContent: 'space-between'}}>
-                            <Typography variant="caption" sx={{fontWeight: 500, opacity: 0.8}}>{renderTimeLeft()}</Typography>
+                            <Typography variant="caption"
+                                        sx={{fontWeight: 500, opacity: 0.8}}>{renderTimeLeft()}</Typography>
                             <Typography variant="caption" sx={{fontWeight: 800}}>{bookProgress.toFixed(1)}%</Typography>
                         </Box>
                     </Box>
 
-                    <IconButton onClick={() => epubService.next()} sx={{ color: themeStyles.text, border: `1px solid ${themeStyles.border}`, borderRadius: '12px' }}><NavigateNextIcon/></IconButton>
+                    <IconButton onClick={() => epubService.next()} sx={{
+                        color: themeStyles.text,
+                        border: `1px solid ${themeStyles.border}`,
+                        borderRadius: '12px'
+                    }}><NavigateNextIcon/></IconButton>
                 </Box>
             </Box>
 
@@ -327,9 +534,9 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 }}
             >
                 {/* Header del Drawer */}
-                <Box sx={{ p: {xs: 1.5, sm: 2}, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="h6" sx={{fontWeight: 800, px: 1}}>Menu</Typography>
-                    <IconButton onClick={() => setIsTocOpen(false)} size="small"><CloseIcon/></IconButton>
+                <Box sx={{p: {xs: 1.5, sm: 2}, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <Typography variant="h6" sx={{fontWeight: 800, px: 1}}>{t('menu')}</Typography>
+                    <IconButton onClick={() => setIsTocOpen(false)} size="small" sx={{color: themeStyles.text, opacity: 0.5}}><CloseIcon/></IconButton>
                 </Box>
 
                 {/* Tabs di navigazione */}
@@ -339,13 +546,14 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                     variant="fullWidth"
                     sx={{
                         borderBottom: `1px solid ${themeStyles.border}`,
-                        '& .MuiTab-root': { color: themeStyles.text, fontWeight: 600 },
-                        '& .Mui-selected': { color: `${themeStyles.primary} !important` },
-                        '& .MuiTabs-indicator': { backgroundColor: themeStyles.primary }
+                        '& .MuiTab-root': {color: themeStyles.text, fontWeight: 600},
+                        '& .Mui-selected': {color: `${themeStyles.primary} !important`},
+                        '& .MuiTabs-indicator': {backgroundColor: themeStyles.primary}
                     }}
                 >
-                    <Tab label={t('index_title')} />
-                    <Tab label={t('bookmarks')} />
+                    <Tab label={t('index_title')}/>
+                    <Tab label={t('bookmarks')}/>
+                    <Tab label={t('note')}/>
                 </Tabs>
 
                 {/* Contenuto del Drawer */}
@@ -386,32 +594,112 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                                     <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
                                         <ListItemButton onClick={() => handleGoToBookmark(b.cfi)}>
                                             <ListItemText
-                                                primary={`${t('chapter')+": "+b.chapterTitle}`}
+                                                primary={`${t('chapter') + ": " + b.chapterTitle}`}
                                                 secondary={`${(b.percentage || 0).toFixed(1)}%`}
-                                                primaryTypographyProps={{ fontWeight: 600, color: themeStyles.text, fontSize: '0.95rem' }}
-                                                secondaryTypographyProps={{ color: themeStyles.primary, fontWeight: 700 }}
+                                                primaryTypographyProps={{
+                                                    fontWeight: 600,
+                                                    color: themeStyles.text,
+                                                    fontSize: '0.95rem'
+                                                }}
+                                                secondaryTypographyProps={{color: themeStyles.primary, fontWeight: 700}}
                                             />
                                         </ListItemButton>
 
                                         <IconButton
                                             edge="end"
                                             onClick={() => handleDeleteBookmark(b.cfi)}
-                                            sx={{ color: themeStyles.text, opacity: 0.6, mr: 1, '&:hover': { opacity: 1, color: 'error.main' } }}
+                                            sx={{
+                                                color: themeStyles.text,
+                                                opacity: 0.6,
+                                                mr: 1,
+                                                '&:hover': {opacity: 1, color: 'error.main'}
+                                            }}
                                         >
-                                            <DeleteOutlineIcon fontSize="small" />
+                                            <DeleteOutlineIcon fontSize="small"/>
                                         </IconButton>
                                     </ListItem>
                                 ))
                             ) : (
-                                <Box sx={{ p: 4, textAlign: 'center', opacity: 0.5 }}>
-                                    <BookmarkBorderIcon sx={{ fontSize: 40, mb: 1 }} />
+                                <Box sx={{p: 4, textAlign: 'center', opacity: 0.5}}>
+                                    <BookmarkBorderIcon sx={{fontSize: 40, mb: 1}}/>
                                     <Typography variant="body2">{t('no_bookmark_saved')}</Typography>
+                                </Box>
+                            )}
+                        </List>
+                    )}
+
+                    {/* TAB 2: SOTTOLINEATURE */}
+                    {drawerTab === 2 && (
+                        <List>
+                            {highlights.length > 0 ? (
+                                highlights.map((h, i) => (
+                                    <ListItem key={i} disablePadding divider sx={{borderColor: themeStyles.border}}>
+                                        <ListItemButton onClick={() => handleGoToBookmark(h.cfiRange)} sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 2 }}>
+                                            <Typography variant="caption" sx={{ color: themeStyles.primary, fontWeight: 800, mb: 0.5 }}>
+                                                {h.chapterTitle}
+                                            </Typography>
+                                            <Typography variant="body2" sx={{ fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                                "{h.text}"
+                                            </Typography>
+                                        </ListItemButton>
+
+                                        {/* <-- NUOVA ICONA ELIMINA PER LE SOTTOLINEATURE */}
+                                        <IconButton
+                                            edge="end"
+                                            onClick={() => confirmDeleteHighlight(h.cfiRange)}
+                                            sx={{ color: themeStyles.text, opacity: 0.6, mr: 1, '&:hover': { opacity: 1, color: 'error.main' } }}
+                                        >
+                                            <DeleteOutlineIcon fontSize="small" />
+                                        </IconButton>
+
+                                    </ListItem>
+                                ))
+                            ) : (
+                                <Box sx={{ p: 4, textAlign: 'center', opacity: 0.5 }}>
+                                    <Typography variant="body2">{t('no_notes')}</Typography>
                                 </Box>
                             )}
                         </List>
                     )}
                 </Box>
             </Drawer>
+
+
+            {/* POPUP CUSTOM ELIMINA SOTTOLINEATURA */}
+            <Dialog
+                open={!!highlightToRemove}
+                onClose={() => setHighlightToRemove(null)}
+                PaperProps={{
+                    sx: {
+                        bgcolor: themeStyles.card,
+                        color: themeStyles.text,
+                        borderRadius: '16px',
+                        border: `1px solid ${themeStyles.border}`
+                    }
+                }}
+            >
+                {/* Aggiunto color: themeStyles.text qui sotto 👇 */}
+                <DialogTitle sx={{ fontSize: '1.1rem', fontWeight: 600, color: themeStyles.text }}>
+                    {t('delete_highlight_confirm')}
+                </DialogTitle>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button
+                        onClick={() => setHighlightToRemove(null)}
+                        sx={{ color: themeStyles.text, textTransform: 'none', fontWeight: 600 }}
+                    >
+                        {t('cancel')}
+                    </Button>
+                    <Button
+                        onClick={() => confirmDeleteHighlight(highlightToRemove)}
+                        variant="contained"
+                        color="error"
+                        disableElevation
+                        sx={{ textTransform: 'none', fontWeight: 600, borderRadius: '8px' }}
+                    >
+                        {t('delete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings}
                             setSettings={setSettings} themeStyles={themeStyles}/>

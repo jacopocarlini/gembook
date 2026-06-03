@@ -53,6 +53,13 @@ const resources = {
 
             "no_bookmark_saved": "Nessun segnalibro salvato",
             "bookmarks": "Segnalibri",
+            "note": "Note",
+            "menu": "Menu",
+            "delete_highlight_confirm": "Vuoi eliminare questa nota?",
+            "cancel": "Annulla",
+            "delete": "Elimina",
+            "text_selection": "Testo Selezionato",
+            "no_notes": "Nessuna Nota Salvata",
         }
     },
     en: {
@@ -100,7 +107,14 @@ const resources = {
             "copy": "Copy",
 
             "no_bookmark_saved": "No bookmarks saved",
-            "bookmarks": "Bookmarks"
+            "bookmarks": "Bookmarks",
+            "note": "Note",
+            "menu": "Menu",
+            "delete_highlight_confirm": "Do you want to delete this note?",
+            "cancel": "Cancel",
+            "delete": "Delete",
+            "text_selection": "Selected Text",
+            "no_notes": "No Notes Saved",
 
         }
     }

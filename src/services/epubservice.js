@@ -96,8 +96,7 @@ class EpubService {
         this.currentSettings = null;
     }
 
-    async init({bookData, elementId, settings, onReady, onRelocated, onSelected}) {        // 1. Distruzione totale
-        if (this.rendition) {
+    async init({bookData, elementId, settings, onReady, onRelocated, onSelected, onHighlightClick}) {        if (this.rendition) {
             this.rendition.destroy();
             this.rendition = null;
         }
@@ -138,6 +137,8 @@ class EpubService {
             allowScript: true,
             allowScriptedContent: true
         });
+
+        this.onHighlightClickCallback = onHighlightClick;
 
         if (bookData.locations) {
             this.book.locations.load(bookData.locations);
@@ -224,9 +225,6 @@ class EpubService {
     }
 
     handleRelocated(locationData, callback) {
-        console.log(locationData);
-        console.log(this.book);
-
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
@@ -323,88 +321,86 @@ class EpubService {
                 : '';
 
             style.innerHTML = `
-                /* 1. COMUNICA AL BROWSER IL TEMA GENERALE */
-                html {
-                    color-scheme: ${settings.theme === 'dark' ? 'dark' : 'light'};
-                    scrollbar-width: thin;
-                    scrollbar-color: ${active.text} ${active.bg};
-                }
+    /* 1. COMUNICA AL BROWSER IL TEMA GENERALE */
+    html {
+        color-scheme: ${settings.theme === 'dark' ? 'dark' : 'light'};
+        scrollbar-width: thin;
+        scrollbar-color: ${active.text} ${active.bg};
+    }
 
-                body {
-                    background-color: ${active.bg} !important;
-                    color: ${active.text} !important;
-                    font-size: ${settings.fontSize}% !important;
-                    ${fontStack}
-                    line-height: 1.6 !important;
-                    margin: 0 !important;
-                    
-                    /* BLOCCA SELEZIONE E COPIA DI SISTEMA */
-                    -webkit-user-select: none !important;
-                    -moz-user-select: none !important;
-                    -ms-user-select: none !important;
-                    user-select: none !important;
-            
-                    /* Rimuove il flash blu al tocco */
-                    -webkit-tap-highlight-color: transparent;
-                }
+    body {
+        background-color: ${active.bg} !important;
+        color: ${active.text} !important;
+        font-size: ${settings.fontSize}% !important;
+        ${fontStack}
+        line-height: 1.6 !important;
+        margin: 0 !important;
+        
+        /* ⚠️ MODIFICA: SELEZIONE SBLOCCATA PER LE SOTTOLINEATURE */
+        -webkit-user-select: text !important;
+        -moz-user-select: text !important;
+        -ms-user-select: text !important;
+        user-select: text !important;
 
-                /* 2. STILIZZAZIONE SPECIFICA PER CHROME / SAFARI / EDGE */
-                ::-webkit-scrollbar {
-                    width: 8px;
-                    height: 8px;
-                    background-color: ${active.bg};
-                }
-                ::-webkit-scrollbar-track {
-                    background-color: ${active.bg};
-                }
-                ::-webkit-scrollbar-thumb {
-                    background-color: ${active.text};
-                    border-radius: 4px;
-                    /* Crea un margine per non farla sembrare un blocco unico */
-                    border: 2px solid ${active.bg}; 
-                }
-                ::-webkit-scrollbar-corner {
-                    background-color: ${active.bg};
-                }
-                
-                /* Impedisce anche il menù contestuale classico (tasto destro / pressione lunga) */
-                * {
-                    -webkit-touch-callout: none !important;
-                }
-                
-                /* Applichiamo l'allineamento solo se scelto nei settings */
-                ${alignRule ? `
-                p, li, span, section, article {
-                    ${alignRule}
-                }
-                ` : ''}
+        /* Rimuove il flash blu ai tap rapidi ma permette la selezione */
+        -webkit-tap-highlight-color: transparent;
+    }
 
-                /* Protezione colori e font */
-                p, li, span, section, article, div {
-                    color: ${active.text} !important;
-                    ${fontStack}
-                }
+    /* 2. STILIZZAZIONE SPECIFICA PER CHROME / SAFARI / EDGE */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+        background-color: ${active.bg};
+    }
+    ::-webkit-scrollbar-track {
+        background-color: ${active.bg};
+    }
+    ::-webkit-scrollbar-thumb {
+        background-color: ${active.text};
+        border-radius: 4px;
+        border: 2px solid ${active.bg}; 
+    }
+    ::-webkit-scrollbar-corner {
+        background-color: ${active.bg};
+    }
+    
+    /* ⚠️ MODIFICA: RIMOSSO il blocco di -webkit-touch-callout. 
+       Su iOS e Android è FONDAMENTALE che sia attivo altrimenti 
+       non riesci a selezionare tenendo premuto il dito sullo schermo! */
+    
+    /* Applichiamo l'allineamento solo se scelto nei settings */
+    ${alignRule ? `
+    p, li, span, section, article {
+        ${alignRule}
+    }
+    ` : ''}
 
-                /* FIX IMMAGINI E COVER: Centratura sempre prioritaria */
-                img { 
-                    max-width: 100% !important; 
-                    height: auto !important; 
-                    display: block !important;
-                    margin-left: auto !important;
-                    margin-right: auto !important;
-                }
+    /* Protezione colori e font */
+    p, li, span, section, article, div {
+        color: ${active.text} !important;
+        ${fontStack}
+    }
 
-                /* Contenitori di immagini devono essere centrati ignorando il justify */
-                p:has(img), div:has(img), figure, .cover, #cover {
-                    text-align: center !important;
-                    display: block !important;
-                    width: 100% !important;
-                    text-indent: 0 !important;
-                }
+    /* FIX IMMAGINI E COVER: Centratura sempre prioritaria */
+    img { 
+        max-width: 100% !important; 
+        height: auto !important; 
+        display: block !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
 
-                /* Rimuoviamo il rientro solo se stiamo giustificando tutto */
-                ${settings.textAlign === 'justify' ? 'p { text-indent: 0; }' : ''}
-            `;
+    /* Contenitori di immagini devono essere centrati ignorando il justify */
+    p:has(img), div:has(img), figure, .cover, #cover {
+        text-align: center !important;
+        display: block !important;
+        width: 100% !important;
+        text-indent: 0 !important;
+    }
+
+    /* Rimuoviamo il rientro solo se stiamo giustificando tutto */
+    ${settings.textAlign === 'justify' ? 'p { text-indent: 0; }' : ''}
+`;
 
             head.appendChild(style);
 
@@ -449,6 +445,37 @@ class EpubService {
             this.book.destroy();
             this.book = null;
             this.rendition = null;
+        }
+    }
+
+    // Aggiunge un'evidenziazione visiva sul testo
+    addHighlight(cfiRange, color = 'rgba(255, 235, 59, 0.5)', data = {}) {
+        console.log("addHighlight", cfiRange, color, data);
+        if (!this.rendition) return;
+
+        this.rendition.annotations.highlight(cfiRange, data, (e) => {
+            // Quando l'utente clicca su un'evidenziazione già creata
+            if (this.onHighlightClickCallback) {
+                this.onHighlightClickCallback(cfiRange);
+            }
+        }, '', { "fill": color });
+    }
+
+    // Rimuove l'evidenziazione
+    removeHighlight(cfiRange) {
+        console.log("remove", cfiRange);
+        if (!this.rendition) return;
+        this.rendition.annotations.remove(cfiRange, "highlight");
+    }
+
+    // Rimuove la selezione blu nativa del testo dopo che abbiamo cliccato "Sottolinea"
+    clearSelection() {
+        console.log("clearSelection");
+
+        if (!this.rendition) return;
+        const contents = this.rendition.manager.getContents()[0];
+        if (contents) {
+            contents.window.getSelection().removeAllRanges();
         }
     }
 }
