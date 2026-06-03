@@ -114,7 +114,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                         epubService.addHighlight(h.cfiRange, h.color);
                     });
                 },
-                onRelocated: (data) => {
+                onRelocated: async (data) => {
                     if (!isMounted) return;
                     setChapterStats({title: data.chapterTitle, timeStats: data.timeStats});
                     setCurrentChapterIndex(data.chapterIndex);
@@ -122,7 +122,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
                     setCurrentLocation(data);
 
-                    db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
+                    await db.books.update(bookId, {currentCfi: data.cfi, progress: data.percentage});
                 }
             });
         };
@@ -174,6 +174,24 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    // Nuovo gestore per la chiusura sicura del libro
+    const handleClose = async () => {
+        // Forza un ultimo salvataggio di sicurezza della posizione attuale
+        if (currentLocation) {
+            try {
+
+                await db.books.update(bookId, {
+                    currentCfi: currentLocation.cfi,
+                    progress: currentLocation.percentage
+                });
+            } catch (error) {
+                console.error("Errore durante il salvataggio finale:", error);
+            }
+        }
+        // Torna alla Home
+        onClose();
+    };
 
     // Aggiungi / Rimuovi Bookmark dalla Header (Con UI Ottimistica)
 // Aggiungi / Rimuovi Bookmark dalla Header
@@ -357,7 +375,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 backgroundImage: 'none'
             }}>
                 <Toolbar sx={{gap: 0.5}}>
-                    <IconButton edge="start" color="inherit" onClick={onClose}><ArrowBackIcon/></IconButton>
+                    <IconButton edge="start" color="inherit" onClick={handleClose}><ArrowBackIcon/></IconButton>
                     <IconButton color="inherit"
                                 onClick={() => setIsTocOpen(true)}><FormatListBulletedIcon/></IconButton>
 

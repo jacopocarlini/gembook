@@ -96,7 +96,8 @@ class EpubService {
         this.currentSettings = null;
     }
 
-    async init({bookData, elementId, settings, onReady, onRelocated, onSelected, onHighlightClick}) {        if (this.rendition) {
+    async init({bookData, elementId, settings, onReady, onRelocated, onSelected, onHighlightClick}) {
+        if (this.rendition) {
             this.rendition.destroy();
             this.rendition = null;
         }
@@ -114,6 +115,8 @@ class EpubService {
         this.currentSettings = settings;
         this.book = ePub(bookData.file);
         this.book.allowScript = true;
+        this.loaded = false;
+
 
         let manager = 'default';
         let flow = 'paginated';
@@ -135,14 +138,17 @@ class EpubService {
             manager: manager,
             flow: flow,
             allowScript: true,
-            allowScriptedContent: true
+            allowScriptedContent: true,
         });
+
 
         this.onHighlightClickCallback = onHighlightClick;
 
         if (bookData.locations) {
             this.book.locations.load(bookData.locations);
         }
+
+        await this.rendition.display(bookData.currentCfi);
 
 
         this.applySettings(settings);
@@ -155,7 +161,9 @@ class EpubService {
 
 
         this.rendition.on('relocated', (data) => {
-            this.handleRelocated(data, onRelocated)
+            if (this.loaded) {
+                this.handleRelocated(data, onRelocated);
+            }
         });
 
         this.rendition.on('keyup', (event) => {
@@ -218,13 +226,19 @@ class EpubService {
             }
         });
 
-        await this.rendition.display(bookData.currentCfi || undefined);
+        if (bookData.currentCfi) {
+            console.log(bookData.currentCfi, 'display');
+            await this.rendition.display(bookData.currentCfi);
+        }
+
+        this.loaded = true;
 
         if (onReady) onReady();
 
     }
 
     handleRelocated(locationData, callback) {
+        console.log(locationData.start.cfi, 'relocated');
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
@@ -248,7 +262,7 @@ class EpubService {
 
             // Calcolo minuti totali
             const remainingBookLocations = Math.max(0, totalLocations - currentLoc);
-            timeStats.totalMinutes = Math.round((remainingBookLocations * (300/caratteriPerParola)) / wpm );
+            timeStats.totalMinutes = Math.round((remainingBookLocations * (300 / caratteriPerParola)) / wpm);
 
             // Calcolo minuti capitolo
             const nextChapterIndex = locationData.start.index + 1;
@@ -262,9 +276,9 @@ class EpubService {
             }
 
             const remainingChapterLocations = Math.max(0, endOfChapterLoc - currentLoc);
-            timeStats.chapterMinutes = Math.round((remainingChapterLocations * (300/caratteriPerParola)) / wpm );
+            timeStats.chapterMinutes = Math.round((remainingChapterLocations * (300 / caratteriPerParola)) / wpm);
 
-            if (timeStats.chapterMinutes === timeStats.totalMinutes){
+            if (timeStats.chapterMinutes === timeStats.totalMinutes) {
                 timeStats.chapterMinutes = 0;
             }
             if (percentage >= 0.99) timeStats.isFinished = true;
@@ -416,6 +430,7 @@ class EpubService {
     }
 
     next() {
+        console.log("next");
         if (!this.rendition) return;
         this.rendition.next();
     }
@@ -450,7 +465,6 @@ class EpubService {
 
     // Aggiunge un'evidenziazione visiva sul testo
     addHighlight(cfiRange, color = 'rgba(255, 235, 59, 0.5)', data = {}) {
-        console.log("addHighlight", cfiRange, color, data);
         if (!this.rendition) return;
 
         this.rendition.annotations.highlight(cfiRange, data, (e) => {
@@ -458,20 +472,17 @@ class EpubService {
             if (this.onHighlightClickCallback) {
                 this.onHighlightClickCallback(cfiRange);
             }
-        }, '', { "fill": color });
+        }, '', {"fill": color});
     }
 
     // Rimuove l'evidenziazione
     removeHighlight(cfiRange) {
-        console.log("remove", cfiRange);
         if (!this.rendition) return;
         this.rendition.annotations.remove(cfiRange, "highlight");
     }
 
     // Rimuove la selezione blu nativa del testo dopo che abbiamo cliccato "Sottolinea"
     clearSelection() {
-        console.log("clearSelection");
-
         if (!this.rendition) return;
         const contents = this.rendition.manager.getContents()[0];
         if (contents) {
