@@ -224,20 +224,26 @@ class EpubService {
     }
 
     handleRelocated(locationData, callback) {
+        console.log(locationData);
+        console.log(this.book);
 
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
-        // Inizializziamo i dati temporali come nulli
+        // Inizializziamo i dati temporali e di posizione
         let timeStats = {
             chapterMinutes: 0,
             totalMinutes: 0,
             isFinished: false
         };
 
+        // Dichiariamo queste variabili qui così possiamo passarle nel callback alla fine
+        let currentLoc = null;
+        let totalLocations = null;
+
         if (this.book.locations && this.book.locations.length() > 0) {
-            const currentLoc = this.book.locations.locationFromCfi(currentCfi);
-            const totalLocations = this.book.locations.length();
+            currentLoc = this.book.locations.locationFromCfi(currentCfi);
+            totalLocations = this.book.locations.length();
 
             const wpm = 250;
             const caratteriPerParola = 6; // Media standard per l'italiano
@@ -279,9 +285,11 @@ class EpubService {
             callback({
                 cfi: currentCfi,
                 percentage: Number((percentage * 100).toFixed(1)),
-                chapterTitle: chapterTitle, // Ritorna null se non trovato
+                chapterTitle: chapterTitle,
                 chapterIndex: activeIndex,
-                timeStats: timeStats // <-- Passiamo l'oggetto con i numeri puri
+                timeStats: timeStats,
+                location: currentLoc,
+                totalLocations: totalLocations
             });
         }
     }

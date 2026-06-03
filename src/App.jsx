@@ -34,6 +34,7 @@ const resources = {
             "mode_paged": "Pagine",
             "mode_infinity": "Continuo",
             "mode_chapters": "Capitoli",
+            "chapter": "Capitolo",
             "loading": "Caricamento...",
             "cover": "Copertina",
             "unknown_title": "Titolo sconosciuto",
@@ -49,6 +50,9 @@ const resources = {
             "selection_title": "Selezione",
             "save_note": "Salva nota",
             "copy": "Copia",
+
+            "no_bookmark_saved": "Nessun segnalibro salvato",
+            "bookmarks": "Segnalibri",
         }
     },
     en: {
@@ -80,6 +84,7 @@ const resources = {
             "mode_paged": "Paged",
             "mode_infinity": "Infinity",
             "mode_chapters": "Chapters",
+            "chapter": "Chapter",
             "loading": "Loading...",
             "unknown_title": "Unknown Title",
             "index_title": "Table of Contents",
@@ -93,6 +98,10 @@ const resources = {
             "selection_title": "Selection",
             "save_note": "Save Note",
             "copy": "Copy",
+
+            "no_bookmark_saved": "No bookmarks saved",
+            "bookmarks": "Bookmarks"
+
         }
     }
 };
