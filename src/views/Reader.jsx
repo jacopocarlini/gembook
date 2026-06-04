@@ -66,7 +66,7 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
     const [drawerTab, setDrawerTab] = useState(0);
 
     // Stato Unificato per Selezioni e Sottolineature
-    // Formato: null | { type: 'selection', data: info } | { type: 'highlight', data: { cfiRange } }
+    // Aggiunto "position" per gestire dove mostrare il popup
     const [activePopup, setActivePopup] = useState(null);
     const [highlights, setHighlights] = useState([]);
 
@@ -77,6 +77,63 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
         })), 10000);
         return () => clearInterval(timer);
     }, []);
+
+    // Helper per calcolare la posizione del popup rispetto al testo selezionato
+    // Helper per calcolare la posizione del popup evitando che esca dallo schermo
+    const getPopupPosition = (cfiRange) => {
+        try {
+            if (!epubService.rendition) return null;
+
+            const range = epubService.rendition.getRange(cfiRange);
+            const rect = range.getBoundingClientRect();
+
+            // Sommiamo le coordinate dell'iframe per avere la posizione assoluta nella pagina
+            const iframe = viewerRef.current.querySelector('iframe');
+            const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
+
+            const absoluteTop = rect.top + iframeRect.top;
+            const absoluteBottom = rect.bottom + iframeRect.top;
+
+            const popupEstimatedHeight = 240; // Altezza massima stimata del popup con un po' di margine
+            const viewportHeight = window.innerHeight; // Altezza totale visibile dello schermo
+
+            // Calcoliamo lo spazio effettivo a disposizione
+            const spaceAbove = absoluteTop;
+            const spaceBelow = viewportHeight - absoluteBottom;
+
+            if (spaceAbove > popupEstimatedHeight) {
+                // Opzione 1: C'è spazio sufficiente sopra la selezione
+                return {
+                    top: absoluteTop - 15,
+                    left: '50%',
+                    transform: 'translate(-50%, -100%)'
+                };
+            } else if (spaceBelow > popupEstimatedHeight) {
+                // Opzione 2: Non c'è spazio sopra, ma ce n'è a sufficienza sotto
+                return {
+                    top: absoluteBottom + 15,
+                    left: '50%',
+                    transform: 'translate(-50%, 0)'
+                };
+            } else {
+                // Fallback di sicurezza: lo schermo è troppo piccolo (es. telefono in orizzontale)
+                // o la selezione è enorme. Lo centriamo a metà schermo in sovraimpressione.
+                return {
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)'
+                };
+            }
+        } catch (error) {
+            console.warn("Impossibile calcolare la posizione esatta, uso il fallback.", error);
+            // Fallback in caso di errori imprevisti di ePub.js
+            return {
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)'
+            };
+        }
+    };
 
     // Inizializzazione Libro
     useEffect(() => {
@@ -99,11 +156,22 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
                 settings: settings,
                 onSelected: (info) => {
                     if (!isMounted) return;
-                    setActivePopup({type: 'selection', data: info});
+
+                    // CONTROLLO 1: Evita di aprire il popup se la selezione è vuota
+                    if (!info || !info.text || info.text.trim() === '') {
+                        epubService.clearSelection();
+                        return;
+                    }
+
+                    // Calcolo dinamico della posizione
+                    const position = getPopupPosition(info.cfiRange);
+                    setActivePopup({type: 'selection', data: info, position});
                 },
                 onHighlightClick: (clickedCfiRange) => {
                     if (!isMounted) return;
-                    setActivePopup({type: 'highlight', data: {cfiRange: clickedCfiRange}});
+
+                    const position = getPopupPosition(clickedCfiRange);
+                    setActivePopup({type: 'highlight', data: {cfiRange: clickedCfiRange}, position});
                 },
                 onReady: () => {
                     if (!isMounted) return;
@@ -391,106 +459,126 @@ export default function Reader({bookId, onClose, settings, setSettings, themeSty
 
             {/* POPUP UNIFICATO (Selezioni & Sottolineature Esistenti) */}
             {activePopup && (
-                <Box
-                    elevation={10}
-                    sx={{
-                        position: 'fixed',
-                        top: '50%', left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        zIndex: 9999, p: 2,
-                        width: {xs: '85vw', sm: 400},
-                        bgcolor: themeStyles.card,
-                        color: themeStyles.text,
-                        borderRadius: '16px',
-                        boxShadow: '0px 8px 32px rgba(0,0,0,0.4)',
-                        display: 'flex', flexDirection: 'column', gap: 2
-                    }}
-                >
-                    {/* Intestazione */}
-                    <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                        <Typography variant="subtitle2"
-                                    sx={{fontWeight: 800, color: themeStyles.primary, textTransform: 'uppercase'}}>
-                            {activePopup.type === 'selection' ? t('text_selection') : t('note')}
-                        </Typography>
-                        <IconButton size="small" onClick={() => {
+                <>
+                    {/* OVERLAY INVISIBILE: Cattura i click fuori dal popup per chiuderlo */}
+                    <Box
+                        onClick={() => {
                             if (activePopup.type === 'selection') epubService.clearSelection();
                             setActivePopup(null);
-                        }} sx={{color: themeStyles.text}}>
-                            <CloseIcon/>
-                        </IconButton>
-                    </Box>
+                        }}
+                        sx={{
+                            position: 'fixed',
+                            top: 0, left: 0, right: 0, bottom: 0,
+                            zIndex: 9998, // Subito sotto al popup (9999)
+                            bgcolor: 'transparent'
+                        }}
+                    />
 
-                    {/* Box Testo */}
-                    <Box sx={{
-                        maxHeight: '120px', overflowY: 'auto',
-                        bgcolor: 'rgba(0,0,0,0.05)', p: 1.5,
-                        borderRadius: '8px', borderLeft: `4px solid ${themeStyles.primary}`
-                    }}>
-                        <Typography variant="body2" sx={{fontStyle: 'italic', color: themeStyles.text}}>
-                            "{getPopupTextContent()}"
-                        </Typography>
-                    </Box>
-
-                    {/* Footer Azioni: Cambia tra Creazione e Rimozione */}
-                    <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 0.5}}>
-
-                        {activePopup.type === 'selection' ? (
-                            /* Azioni per NUOVA selezione (Colori) */
-                            <Box sx={{display: 'flex', gap: 1.5}}>
-                                {[
-                                    {id: 'yellow', bg: '#FBC02D', rgba: 'rgba(255, 235, 59, 0.8)'},
-                                    {id: 'green', bg: '#4CAF50', rgba: 'rgba(76, 175, 80, 0.8)'},
-                                    {id: 'purple', bg: '#9C27B0', rgba: 'rgba(156, 39, 176, 0.8)'}
-                                ].map((color) => (
-                                    <Box
-                                        key={color.id}
-                                        onClick={() => handleAddHighlight(color.rgba)}
-                                        sx={{
-                                            width: 34, height: 34, borderRadius: '50%',
-                                            bgcolor: color.bg,
-                                            boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-                                            cursor: 'pointer', transition: '0.2s',
-                                            border: `2px solid transparent`,
-                                            '&:hover': {
-                                                transform: 'scale(1.15)',
-                                                borderColor: themeStyles.text
-                                            }
-                                        }}
-                                    />
-                                ))}
-                            </Box>
-                        ) : (
-                            /* Azioni per HIGHLIGHT ESISTENTE (Elimina) */
-                            <Button
-                                onClick={() => confirmDeleteHighlight(activePopup.data.cfiRange)}
-                                variant="contained"
-                                color="error"
-                                disableElevation
-                                startIcon={<DeleteOutlineIcon/>}
-                                sx={{textTransform: 'none', fontWeight: 600, borderRadius: '8px', py: 0.5}}
-                            >
-                                {t('delete')}
-                            </Button>
-                        )}
-
-                        {/* Pulsante Copia (Comune a entrambi) */}
-                        <IconButton
-                            onClick={() => {
-                                navigator.clipboard.writeText(getPopupTextContent());
+                    {/* BOX POPUP VERO E PROPRIO */}
+                    <Box
+                        elevation={10}
+                        sx={{
+                            position: 'fixed',
+                            top: activePopup.position?.top || '50%',
+                            left: activePopup.position?.left || '50%',
+                            transform: activePopup.position?.transform || 'translate(-50%, -50%)',
+                            zIndex: 9999, // Sopra l'overlay invisibile
+                            p: 2,
+                            width: {xs: '85vw', sm: 400},
+                            bgcolor: themeStyles.card,
+                            color: themeStyles.text,
+                            borderRadius: '16px',
+                            boxShadow: '0px 8px 32px rgba(0,0,0,0.4)',
+                            display: 'flex', flexDirection: 'column', gap: 2,
+                            transition: 'top 0.2s ease-out'
+                        }}
+                    >
+                        {/* Intestazione */}
+                        <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <Typography variant="subtitle2"
+                                        sx={{fontWeight: 800, color: themeStyles.primary, textTransform: 'uppercase'}}>
+                                {activePopup.type === 'selection' ? t('text_selection') : t('note')}
+                            </Typography>
+                            <IconButton size="small" onClick={() => {
                                 if (activePopup.type === 'selection') epubService.clearSelection();
                                 setActivePopup(null);
-                            }}
-                            sx={{
-                                color: themeStyles.text,
-                                border: `1px solid ${themeStyles.border}`,
-                                borderRadius: '10px',
-                                '&:hover': {bgcolor: 'rgba(0,0,0,0.05)'}
-                            }}
-                        >
-                            <ContentCopyIcon fontSize="small"/>
-                        </IconButton>
+                            }} sx={{color: themeStyles.text}}>
+                                <CloseIcon/>
+                            </IconButton>
+                        </Box>
+
+                        {/* Box Testo */}
+                        <Box sx={{
+                            maxHeight: '120px', overflowY: 'auto',
+                            bgcolor: 'rgba(0,0,0,0.05)', p: 1.5,
+                            borderRadius: '8px', borderLeft: `4px solid ${themeStyles.primary}`
+                        }}>
+                            <Typography variant="body2" sx={{fontStyle: 'italic', color: themeStyles.text}}>
+                                "{getPopupTextContent()}"
+                            </Typography>
+                        </Box>
+
+                        {/* Footer Azioni: Cambia tra Creazione e Rimozione */}
+                        <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 0.5}}>
+
+                            {activePopup.type === 'selection' ? (
+                                /* Azioni per NUOVA selezione (Colori) */
+                                <Box sx={{display: 'flex', gap: 1.5}}>
+                                    {[
+                                        {id: 'yellow', bg: '#FBC02D', rgba: 'rgba(255, 235, 59, 0.8)'},
+                                        {id: 'green', bg: '#4CAF50', rgba: 'rgba(76, 175, 80, 0.8)'},
+                                        {id: 'purple', bg: '#9C27B0', rgba: 'rgba(156, 39, 176, 0.8)'}
+                                    ].map((color) => (
+                                        <Box
+                                            key={color.id}
+                                            onClick={() => handleAddHighlight(color.rgba)}
+                                            sx={{
+                                                width: 34, height: 34, borderRadius: '50%',
+                                                bgcolor: color.bg,
+                                                boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                                                cursor: 'pointer', transition: '0.2s',
+                                                border: `2px solid transparent`,
+                                                '&:hover': {
+                                                    transform: 'scale(1.15)',
+                                                    borderColor: themeStyles.text
+                                                }
+                                            }}
+                                        />
+                                    ))}
+                                </Box>
+                            ) : (
+                                /* Azioni per HIGHLIGHT ESISTENTE (Elimina) */
+                                <Button
+                                    onClick={() => confirmDeleteHighlight(activePopup.data.cfiRange)}
+                                    variant="contained"
+                                    color="error"
+                                    disableElevation
+                                    startIcon={<DeleteOutlineIcon/>}
+                                    sx={{textTransform: 'none', fontWeight: 600, borderRadius: '8px', py: 0.5}}
+                                >
+                                    {t('delete')}
+                                </Button>
+                            )}
+
+                            {/* Pulsante Copia (Comune a entrambi) */}
+                            <IconButton
+                                onClick={() => {
+                                    navigator.clipboard.writeText(getPopupTextContent());
+                                    if (activePopup.type === 'selection') epubService.clearSelection();
+                                    setActivePopup(null);
+                                }}
+                                sx={{
+                                    color: themeStyles.text,
+                                    border: `1px solid ${themeStyles.border}`,
+                                    borderRadius: '10px',
+                                    '&:hover': {bgcolor: 'rgba(0,0,0,0.05)'}
+                                }}
+                            >
+                                <ContentCopyIcon fontSize="small"/>
+                            </IconButton>
+                        </Box>
                     </Box>
-                </Box>
+                </>
             )}
 
             {/* FOOTER */}
