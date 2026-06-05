@@ -1,16 +1,28 @@
+// src/services/epubService.js
 import ePub from 'epubjs';
+import {ragService} from './RAGService';
+import {db} from "./db.js";
+import {webLLMService} from "./WebLLMService.js"; // Assicurati che il percorso sia corretto
+
+const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 15));
+let isIndexing = false;
 
 /**
- * Elabora un file EPUB e restituisce un oggetto pronto per il database
+ * Elabora un file EPUB, estrae il testo per l'IA e restituisce un oggetto pronto per il database.
+ * @param {File} file - Il file caricato
+ * @param {Function} onProgress - Callback per aggiornare lo stato nella UI
  */
-export const processEpubFile = async (file) => {
+export const processEpubFile = async (file, onProgress) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
+                if (onProgress) onProgress("Apertura del file EPUB...");
                 const bookData = e.target.result;
                 const tempBook = ePub(bookData);
                 const metadata = await tempBook.loaded.metadata;
+
+                if (onProgress) onProgress("Estrazione copertina...");
                 const tempCoverUrl = await tempBook.coverUrl();
                 let persistentCover = null;
 
@@ -28,6 +40,7 @@ export const processEpubFile = async (file) => {
                     }
                 }
 
+                if (onProgress) onProgress("Generazione impaginazione...");
                 await tempBook.ready;
                 await tempBook.locations.generate(300);
                 const savedLocations = tempBook.locations.save();
@@ -36,37 +49,23 @@ export const processEpubFile = async (file) => {
 
                 const processItem = (item, depth = 0) => {
                     let safePct = 0;
-
                     if (item.href) {
-                        // 1. Otteniamo il riferimento al capitolo nella "spine"
                         const baseHref = item.href.split('#')[0];
                         const spineItem = tempBook.spine.get(baseHref);
-
                         if (spineItem) {
-                            // 2. Creiamo una "CFI" (l'indirizzo interno di Epub.js)
-                            // che punta esattamente all'inizio di quel file
                             const startCfi = `epubcfi(${spineItem.cfiBase}!/4/1:0)`;
-
-                            // 3. Chiediamo la percentuale REALE basata sulle locations generate
-                            // Se non riesce, restituiamo 0 come fallback sicuro
                             safePct = tempBook.locations.percentageFromCfi(startCfi) || 0;
                         }
                     }
-
-                    tocData.push({
-                        label: item.label?.trim() || null,
-                        percent: safePct, // <--- Ora è preciso al millimetro!
-                        href: item.href,
-                        level: depth
-                    });
-
+                    tocData.push({label: item.label?.trim() || null, percent: safePct, href: item.href, level: depth});
                     if (item.subitems && item.subitems.length > 0) {
                         item.subitems.forEach(sub => processItem(sub, depth + 1));
                     }
                 };
 
-                // Avviamo il processo per i capitoli principali (livello 0)
                 navigation.toc.forEach(item => processItem(item, 0));
+
+                if (onProgress) onProgress("Salvataggio in libreria...");
 
                 const result = {
                     title: metadata.title || null,
@@ -76,8 +75,11 @@ export const processEpubFile = async (file) => {
                     locations: savedLocations,
                     toc: tocData,
                     progress: 0,
-                    addedDate: Date.now()
+                    addedDate: Date.now(),
+                    indexedChunks: [],
+                    isIndexed: false // NUOVO FLAG: Indica se l'IA ha finito
                 };
+
                 tempBook.destroy();
                 resolve(result);
             } catch (err) {
@@ -86,6 +88,177 @@ export const processEpubFile = async (file) => {
         };
         reader.readAsArrayBuffer(file);
     });
+};
+
+export const indexChaptersUpTo = async (bookId, targetChapterIndex) => {
+    if (isIndexing) return false;
+
+    try {
+        const bookData = await db.books.get(bookId);
+        if (!bookData) return false;
+
+        const indexedChapters = bookData.indexedChapters || [];
+
+        let needsIndexing = false;
+        for (let i = 0; i <= targetChapterIndex; i++) {
+            if (!indexedChapters.includes(i)) needsIndexing = true;
+        }
+
+        if (!needsIndexing) return true;
+
+        isIndexing = true;
+        console.log(`Avvio indicizzazione progressiva in background fino al capitolo: ${targetChapterIndex}`);
+
+        await yieldToMain();
+        await ragService.init();
+
+        const tempBook = ePub(bookData.file);
+        await tempBook.ready;
+        const spine = tempBook.spine;
+
+        const maxChapter = Math.min(targetChapterIndex, spine.length - 1);
+
+        let allBookChunks = [...(bookData.indexedChunks || [])];
+        let chapterSummaries = [...(bookData.chapterSummaries || [])];
+        let characterSet = new Set(bookData.characters || []);
+        let globalSummary = bookData.globalSummary || ""; // Carichiamo il global summary
+
+        for (let i = 0; i <= maxChapter; i++) {
+            if (indexedChapters.includes(i)) continue;
+
+            const item = spine.get(i);
+            try {
+                await yieldToMain();
+                const doc = await item.load(tempBook.load.bind(tempBook));
+                let text = "";
+
+                let parsedDoc = doc;
+                if (typeof doc === 'string') {
+                    const parser = new DOMParser();
+                    parsedDoc = parser.parseFromString(doc, "application/xhtml+xml");
+                    await yieldToMain();
+                }
+
+                if (parsedDoc && typeof parsedDoc === 'object') {
+                    const body = parsedDoc.querySelector("body") || parsedDoc.getElementsByTagName("body")[0];
+                    if (body) {
+                        text = body.textContent || "";
+                        text = text.replace(/\s+/g, ' ').trim();
+                    }
+                }
+
+                if (text.trim().length > 0) {
+
+                    // --- FASE 1: Estrazione Personaggi + Riassunto Capitolo con LLM ---
+                    console.log("Analisi LLM (Personaggi e Riassunto) per capitolo", i);
+                    let currentChapterSummary = "";
+                    try {
+                        await webLLMService.initialize(() => {});
+                        const analysisPrompt = `Analizza questo capitolo.
+1) Scrivi un riassunto in massimo 3 frasi.
+2) Elenca i nomi dei personaggi presenti, separati da virgola.
+Rispondi ESATTAMENTE in questo formato:
+RIASSUNTO: [riassunto]
+PERSONAGGI: [nome1, nome2]
+
+Testo: ${text.slice(0, 4000)}`;
+
+                        const analysisReply = await webLLMService.engine.chat.completions.create({
+                            messages: [
+                                {role: "system", content: "Sei un assistente editoriale che rispetta rigorosamente i formati."},
+                                {role: "user", content: analysisPrompt}
+                            ],
+                            temperature: 0.1
+                        });
+
+                        const replyText = analysisReply.choices[0].message.content;
+
+                        // Estraiamo le due parti con le espressioni regolari
+                        const summaryMatch = replyText.match(/RIASSUNTO:\s*(.*?)(?=\nPERSONAGGI:|$)/is);
+                        const charsMatch = replyText.match(/PERSONAGGI:\s*(.*)/is);
+
+                        currentChapterSummary = summaryMatch ? summaryMatch[1].trim() : "Riassunto non generato.";
+                        const charsString = charsMatch ? charsMatch[1].trim() : "";
+
+                        // Aggiungiamo i personaggi trovati alla nostra lista (se non ha scritto "nessuno")
+                        if (charsString && !charsString.toLowerCase().includes("nessun")) {
+                            charsString.split(',').forEach(c => characterSet.add(c.trim().replace(/['"]/g, '')));
+                        }
+
+                        // CREIAMO L'EMBEDDING DEL RIASSUNTO (Serve per la ricerca gerarchica!)
+                        const chapterVector = await ragService.getEmbedding(currentChapterSummary);
+
+                        chapterSummaries.push({
+                            chapterIndex: i,
+                            summary: currentChapterSummary,
+                            vector: chapterVector
+                        });
+
+                    } catch (e) {
+                        console.warn(`Impossibile analizzare il capitolo ${i}`, e);
+                        currentChapterSummary = "Errore durante l'analisi.";
+                    }
+                    await yieldToMain();
+
+                    // --- FASE 2: Aggiornamento Global Summary ---
+                    console.log("Aggiornamento Global Summary...");
+                    try {
+                        const globalPrompt = `Riassunto globale attuale: "${globalSummary || 'Nessun evento precedente.'}".
+Nuovi eventi del capitolo: "${currentChapterSummary}".
+Aggiorna il riassunto globale integrandoli. Sii estremamente conciso e scrivi solo gli eventi chiave (max 150 parole).`;
+
+                        const globalReply = await webLLMService.engine.chat.completions.create({
+                            messages: [
+                                {role: "system", content: "Sei un narratore che mantiene la trama di un libro aggiornata."},
+                                {role: "user", content: globalPrompt}
+                            ],
+                            temperature: 0.2
+                        });
+
+                        globalSummary = globalReply.choices[0].message.content.trim();
+                    } catch (e) {
+                        console.warn(`Impossibile aggiornare il global summary al capitolo ${i}`, e);
+                    }
+                    await yieldToMain();
+
+                    // --- FASE 3: Chunking Vettoriale Classico ---
+                    console.log("Creazione embedding dei chunk per capitolo", i);
+                    const chunks = ragService.chunkText(text, 150);
+                    for (const chunk of chunks) {
+                        const vector = await ragService.getEmbedding(chunk);
+                        allBookChunks.push({chapterIndex: i, text: chunk, vector: vector});
+                        await yieldToMain();
+                    }
+                }
+
+                indexedChapters.push(i);
+
+                await yieldToMain();
+
+                // Salviamo tutto nel database passo dopo passo
+                await db.books.update(bookId, {
+                    indexedChunks: allBookChunks,
+                    chapterSummaries: chapterSummaries,
+                    characters: Array.from(characterSet),
+                    globalSummary: globalSummary, // Salviamo la trama globale
+                    indexedChapters: indexedChapters,
+                    isIndexed: true
+                });
+
+                console.log(`Capitolo ${i} indicizzato con successo.`);
+
+            } catch (err) {
+                console.warn(`Impossibile leggere il capitolo ${i}`, err);
+            }
+        }
+
+        tempBook.destroy();
+
+    } catch (error) {
+        console.error("Errore durante l'indicizzazione progressiva:", error);
+    } finally {
+        isIndexing = false;
+    }
 };
 
 class EpubService {
@@ -227,7 +400,6 @@ class EpubService {
         });
 
         if (bookData.currentCfi) {
-            console.log(bookData.currentCfi, 'display');
             await this.rendition.display(bookData.currentCfi);
         }
 
@@ -238,7 +410,6 @@ class EpubService {
     }
 
     handleRelocated(locationData, callback) {
-        console.log(locationData.start.cfi, 'relocated');
         const currentCfi = locationData.start.cfi;
         const percentage = this.book.locations?.percentageFromCfi(currentCfi) || 0;
 
@@ -430,7 +601,6 @@ class EpubService {
     }
 
     next() {
-        console.log("next");
         if (!this.rendition) return;
         this.rendition.next();
     }
@@ -495,7 +665,7 @@ class EpubService {
     addHighlight(cfiRange, color = 'rgba(255, 235, 59, 0.5)', data = {}) {
         if (!this.rendition) return;
 
-        this.rendition.annotations.highlight(cfiRange, data, (e) => {
+        this.rendition.annotations.highlight(cfiRange, data, () => {
             // Quando l'utente clicca su un'evidenziazione già creata
             if (this.onHighlightClickCallback) {
                 this.onHighlightClickCallback(cfiRange);

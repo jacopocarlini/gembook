@@ -8,7 +8,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AddIcon from '@mui/icons-material/Add';
 import { db } from '../services/db';
-import { processEpubFile } from '../services/epubService';
+import {indexChaptersUpTo, processEpubFile} from '../services/epubService';
 import { BookCard } from './BookCard';
 import { SettingsDrawer } from './Settings';
 import { useTranslation } from 'react-i18next';
@@ -43,15 +43,30 @@ export default function Home({ onOpenBook, settings, setSettings, themeStyles })
     const handleImport = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
+
         setIsImporting(true);
+
         try {
-            const processedBook = await processEpubFile(file);
+            // Fase 1: Importazione Base Veloce
+            const processedBook = await processEpubFile(file, (statusText) => {
+                console.log(statusText);
+            });
+
             const id = await db.books.add(processedBook);
             setBooks(prev => [...prev, { ...processedBook, id }]);
+
+            setIsImporting(false); // UI Sbloccata immediatamente!
+            event.target.value = '';
+
+            // Fase 2: Elaboriamo a malapena l'inizio (Capitolo 0 e 1)
+            // Importa indexChaptersUpTo da '../services/epubService' in alto nel file
+            indexChaptersUpTo(id, 1).then(() => {
+                setBooks(prev => prev.map(b => b.id === id ? { ...b, isIndexed: true } : b));
+            });
+
         } catch (error) {
             console.error(error);
-            alert(t('import_error')); // <-- Alert tradotto
-        } finally {
+            alert(t('import_error'));
             setIsImporting(false);
             event.target.value = '';
         }
