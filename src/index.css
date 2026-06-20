@@ -59,7 +59,7 @@
 }
 
 #root {
-    height: 100%;
+    height: 100dvh;
     max-width: 100%;
     margin: 0 auto;
     text-align: center;
@@ -70,13 +70,16 @@
 }
 
 html, body {
-    height: 100%;
+    height: 100dvh;
     margin: 0;
     padding: 0;
     /* Importante: usa lo sfondo del tuo tema anche qui
        per evitare il flash bianco al caricamento */
     background-color: var(--bg);
     overflow: hidden; /* Evita scroll rimbalzanti fastidiosi su Android */
+
+    /* Previene comportamenti di refresh "pull-to-refresh" trascinando verso il basso */
+    overscroll-behavior-y: contain;
 }
 
 h1,
